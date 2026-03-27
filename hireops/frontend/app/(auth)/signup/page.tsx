@@ -15,7 +15,7 @@ interface RegisterResponse {
 
 export default function SignupPage() {
   const router = useRouter();
-  const [role, setRole] = useState<"candidate" | "hr" | "manager">("candidate");
+  const [role, setRole] = useState<"CANDIDATE" | "HR" | "MANAGER">("CANDIDATE");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,19 +26,15 @@ export default function SignupPage() {
 
   // Employer specific state
   const [companyName, setCompanyName] = useState("");
-  const roleTabs = [
-    { id: "candidate", label: "Candidate" },
-    { id: "hr", label: "HR" },
-    { id: "manager", label: "Manager" },
-  ] as const;
-  const isEmployer = role !== "candidate";
+  const roleOptions = ["CANDIDATE", "HR", "MANAGER"] as const;
+  const isEmployer = role !== "CANDIDATE";
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
 
-    const payloadRole = (role.toUpperCase() as "CANDIDATE" | "HR" | "MANAGER");
+    const payloadRole = role;
     const payload: Record<string, unknown> = {
       email,
       password,
@@ -120,28 +116,27 @@ export default function SignupPage() {
         </motion.div>
       )}
 
-      {/* Modern Toggle Switch using Framer Motion */}
-      <div className="relative flex p-1 mb-8 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
-        {roleTabs.map((tab) => (
+      {/* Role selector */}
+      <div className="relative flex w-full p-1 mb-8 bg-zinc-900 border border-zinc-800 rounded-lg">
+        <motion.div
+          layout
+          className="absolute inset-0 m-1 rounded-md bg-white shadow-sm"
+          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          style={{ width: `${100 / roleOptions.length}%`, left: `${(100 / roleOptions.length) * roleOptions.indexOf(role)}%` }}
+        />
+        {roleOptions.map((option) => (
           <button
-            key={tab.id}
-            onClick={() => setRole(tab.id)}
-            className={`relative z-10 w-1/3 py-2 text-sm font-medium transition-colors ${role === tab.id ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200"}`}
+            key={option}
+            type="button"
+            onClick={() => setRole(option)}
+            className={`flex-1 py-2 text-sm text-center transition-all relative ${role === option
+                ? "text-black font-semibold"
+                : "text-neutral-400 hover:text-neutral-200"
+              }`}
           >
-            {tab.label}
+            {option === "HR" ? "HR" : option.charAt(0) + option.slice(1).toLowerCase()}
           </button>
         ))}
-
-        {/* Animated Background Indicator */}
-        <motion.div
-          className="absolute inset-1 bg-white rounded-md shadow-sm"
-          initial={false}
-          animate={{
-            x: role === "candidate" ? 0 : role === "hr" ? "33.333%" : "66.666%",
-            width: "calc(33.333% - 4px)",
-          }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        />
       </div>
 
       <form onSubmit={handleSignup} className="space-y-4">
