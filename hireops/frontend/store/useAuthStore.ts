@@ -5,31 +5,29 @@ interface User {
   id: number;
   role: "candidate" | "hr" | "manager";
   company_id: number | null;
+  email?: string;
 }
 
 interface AuthState {
   user: User | null;
+  isAuthenticated: boolean;
   login: (user: User) => void;
   logout: () => void;
-  isAuthenticated: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
+      isAuthenticated: false,
 
       login: (user) => {
-        set({ user });
+        set({ user, isAuthenticated: true });
       },
 
       logout: () => {
         document.cookie = "hireops_session=; path=/; max-age=0;"; // clear auth cookie
-        set({ user: null });
-      },
-
-      isAuthenticated: () => {
-        return get().user !== null;
+        set({ user: null, isAuthenticated: false });
       },
     }),
     {

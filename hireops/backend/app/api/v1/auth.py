@@ -9,9 +9,15 @@ from sqlalchemy import select
 from passlib.context import CryptContext
 
 from app.db import get_db
-from app.models import User
+from app.models import User, UserRole
+from pydantic import BaseModel, EmailStr
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
 
 # Configuration for SaaS JWT Issuance
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "hireops_dev_secret_2026_xyz")
@@ -33,6 +39,53 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_candidate(
+    payload: RegisterRequest, 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Registers a new global candidate into the platform.
+    """
+    # 1. Check existing
+    result = await db.execute(select(User).where(User.email == payload.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered."
+        )
+    
+    # 2. Hash and Create User
+    new_user = User(
+        email=payload.email,
+        hashed_password=get_password_hash(payload.password),
+        full_name=payload.full_name,
+        role=UserRole.CANDIDATE,
+        company_id=None
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    # 3. Issue Token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    jwt_payload = {
+        "sub": str(new_user.id),
+        "email": new_user.email,
+        "role": new_user.role,
+        "company_id": new_user.company_id
+    }
+    
+    access_token = create_access_token(
+        data=jwt_payload, expires_delta=access_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": new_user.id
+    }
 
 @router.post("/login", response_model=dict)
 async def login_for_access_token(

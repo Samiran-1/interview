@@ -4,11 +4,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Loader2, Mail, Lock, User, Building, ChevronDown, ArrowRight } from "lucide-react";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export default function SignupPage() {
   const router = useRouter();
+  const { login } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"candidate" | "employer">("candidate");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Shared form state
   const [name, setName] = useState("");
@@ -22,20 +25,51 @@ export default function SignupPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    // Simulate backend fetch delay for registration
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      if (activeTab === "employer") {
+        throw new Error("Employer registration is not yet supported in this demo.");
+      }
 
-    // After "successful registration", automatically log them in
-    const activeRole = activeTab === "candidate" ? "candidate" : role;
-    const payload = JSON.stringify({ role: activeRole });
-    const base64Payload = btoa(payload).replace(/=/g, ''); 
-    const mockJWT = `fakeHeader.${base64Payload}.fakeSignature`;
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+           email: email, 
+           password: password,
+           full_name: name
+        }),
+      });
 
-    document.cookie = `hireops_session=${mockJWT}; path=/; max-age=86400`;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Registration Failed");
+      }
 
-    // Redirect to the newly established dashboard
-    router.push(`/${activeRole === "hiring_manager" ? "manager" : activeRole}`);
+      const data = await response.json();
+      const token = data.access_token;
+
+      document.cookie = `hireops_session=${token}; path=/; max-age=86400; samesite=lax`;
+      localStorage.setItem("token", token);
+
+      const payloadBase64 = token.split(".")[1];
+      const decodedPayload = JSON.parse(atob(payloadBase64.replace(/-/g, "+").replace(/_/g, "/")));
+
+      login({
+        id: parseInt(decodedPayload.sub),
+        role: (decodedPayload.role).toLowerCase() as "candidate" | "hr" | "manager",
+        company_id: decodedPayload.company_id,
+        email: decodedPayload.email,
+      });
+
+      router.push("/candidate");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Unable to register at this time.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -46,6 +80,16 @@ export default function SignupPage() {
       <p className="text-zinc-400 text-sm mb-6">
         Get started with HireOps in seconds.
       </p>
+
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg"
+        >
+          <p className="text-sm text-red-400 font-medium">{error}</p>
+        </motion.div>
+      )}
 
       {/* Modern Toggle Switch using Framer Motion */}
       <div className="relative flex p-1 mb-8 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">

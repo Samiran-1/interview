@@ -10,7 +10,7 @@ import { LogOut } from "lucide-react";
 
 export function Navbar() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export function Navbar() {
         <nav className="hidden md:flex items-center gap-6">
           {mounted && (
             <>
-              {!user && (
+              {!isAuthenticated && (
                 <>
                   <NavLink href="/login">Login</NavLink>
                   <Link href="/signup">
@@ -80,7 +80,7 @@ export function Navbar() {
 
         {/* User actions */}
         <div className="flex items-center gap-4">
-          {mounted && user && (
+          {mounted && isAuthenticated && user && (
             <div className="flex items-center gap-4 pl-4 border-l border-neutral-800">
               <div className="hidden sm:flex flex-col items-end">
                 <span className="text-xs font-bold text-neutral-300">
