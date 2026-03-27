@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion, Variants } from "framer-motion";
 import {
   Briefcase,
@@ -40,6 +41,7 @@ interface JobCardProps {
   isApplying: boolean;
   onApply: (jobId: number) => void;
   onNavigate: (path: string) => void;
+  onViewDetails: (job: Job) => void;
   variants?: Variants;
 }
 
@@ -49,8 +51,10 @@ export function JobCard({
   isApplying,
   onApply,
   onNavigate,
+  onViewDetails,
   variants,
 }: JobCardProps) {
+
   // ── Action footer logic ──
   function renderCardAction() {
     if (isApplying) {
@@ -79,7 +83,10 @@ export function JobCard({
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
-            onClick={() => onNavigate("/candidate/interview/" + job.id)}
+            onClick={(e) => {
+               e.stopPropagation();
+               onNavigate("/candidate/interview/" + job.id);
+            }}
             className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-violet-500/15 text-violet-300 rounded-xl border border-violet-500/30 hover:bg-violet-500/25 transition-all"
           >
             <Sparkles className="w-4 h-4" />
@@ -94,7 +101,10 @@ export function JobCard({
         <motion.button
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
-          onClick={() => onNavigate("/candidate/application/" + job.id)}
+          onClick={(e) => {
+             e.stopPropagation();
+             onNavigate("/candidate/application/" + job.id);
+          }}
           className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 rounded-xl border border-emerald-500/30 hover:bg-emerald-500/25 transition-all"
         >
           <FlaskConical className="w-4 h-4" />
@@ -109,11 +119,14 @@ export function JobCard({
       <motion.button
         whileHover={{ scale: 1.03 }}
         whileTap={{ scale: 0.97 }}
-        onClick={() => onApply(job.id)}
-        className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-indigo-500/15 text-indigo-300 rounded-xl border border-indigo-500/30 hover:bg-indigo-500/25 transition-all"
+        onClick={(e) => {
+           e.stopPropagation();
+           onApply(job.id);
+        }}
+        className="flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] rounded-xl hover:bg-indigo-400 hover:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-all ml-auto"
       >
         <Sparkles className="w-4 h-4" />
-        Apply Now
+        Apply for this Role
       </motion.button>
     );
   }
@@ -129,7 +142,8 @@ export function JobCard({
           : "default"
       }
       whileHover={{ scale: 1.015, y: -4 }}
-      className="group p-6 rounded-3xl flex flex-col justify-between transition-colors duration-300"
+      className="group p-6 rounded-3xl flex flex-col justify-between transition-colors duration-300 cursor-pointer"
+      onClick={() => onViewDetails(job)}
     >
       {/* Card Upper */}
       <div className="space-y-3">
@@ -157,7 +171,7 @@ export function JobCard({
 
         {/* Skills */}
         <div className="flex flex-wrap gap-1.5 pt-1">
-          {job.skills.map((skill) => (
+          {job.skills && job.skills.map((skill) => (
             <span
               key={skill}
               className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 bg-neutral-800/60 rounded-lg border border-neutral-700/40"
@@ -169,7 +183,7 @@ export function JobCard({
       </div>
 
       {/* Card Action Footer */}
-      <div className="mt-6 pt-4 border-t border-neutral-800/50">
+      <div className="mt-6 pt-4 border-t border-neutral-800/50 flex justify-end">
         {renderCardAction()}
       </div>
     </GlassCard>

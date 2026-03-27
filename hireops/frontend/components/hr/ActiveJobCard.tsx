@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ChevronRight, Users, Calendar, BarChart2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -13,13 +13,18 @@ interface ActiveJobCardProps {
     date_posted: string;
     is_active: boolean;
   };
+  onViewDetails: (job: any) => void;
 }
 
-export function ActiveJobCard({ job }: ActiveJobCardProps) {
+export function ActiveJobCard({ job, onViewDetails }: ActiveJobCardProps) {
+  const router = useRouter();
+
   return (
-    <Link href={`/hr/jobs/${job.id}`} className="group block">
-      <GlassCard className="p-6 rounded-[1.5rem] border border-neutral-800/40 group-hover:border-indigo-500/30 transition-all duration-500 hover:bg-neutral-900/40 relative overflow-hidden h-full">
-        {/* Hover Highlight */}
+    <GlassCard 
+      onClick={() => onViewDetails(job)}
+      className="group block p-6 rounded-[1.5rem] border border-neutral-800/40 hover:border-indigo-500/30 transition-all duration-500 hover:bg-neutral-900/40 relative overflow-hidden h-full cursor-pointer"
+    >
+      {/* Hover Highlight */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500/0 via-indigo-500/40 to-indigo-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
 
         <div className="flex flex-col justify-between h-full space-y-4">
@@ -54,12 +59,17 @@ export function ActiveJobCard({ job }: ActiveJobCardProps) {
                 <span className="text-neutral-100">{job.applicant_count}</span> Applicants
               </p>
             </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-950/60 border border-neutral-800 rounded-lg text-[10px] font-bold text-neutral-500 group-hover:text-neutral-300 transition-colors uppercase tracking-widest">
-              Review Pipeline
-            </div>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/hr/jobs/${job.id}`);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-950/60 border border-neutral-800 rounded-lg text-[10px] font-bold text-neutral-500 hover:text-white hover:border-neutral-500 transition-colors uppercase tracking-widest relative z-10"
+            >
+              View Pipeline
+            </button>
           </div>
         </div>
       </GlassCard>
-    </Link>
   );
 }

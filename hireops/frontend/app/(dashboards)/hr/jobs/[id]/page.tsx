@@ -7,13 +7,15 @@ import {
   Users, 
   Search, 
   RefreshCw,
-  ExternalLink 
+  ExternalLink,
+  FileText
 } from "lucide-react";
 import Link from "next/link";
 
 // Extracted components
 import { KanbanColumn } from "@/components/hr/KanbanColumn";
 import { CandidateMiniCard, HRApplication } from "@/components/hr/CandidateMiniCard";
+import { JobDetailsModal } from "@/components/shared/JobDetailsModal";
 import { fetchApi } from "@/lib/api";
 
 // Pipeline columns mirroring the ApplicationStatus enum
@@ -57,6 +59,8 @@ export default function JobPipelineDashboard({
   
   const [applications, setApplications] = useState<HRApplication[]>([]);
   const [jobTitle, setJobTitle] = useState("Pipeline Dashboard");
+  const [jobData, setJobData] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -66,6 +70,7 @@ export default function JobPipelineDashboard({
       // 1. Fetch Job Metadata using authenticated wrapper
       const job = await fetchApi<any>(`/api/v1/jobs/${jobId}`);
       setJobTitle(job.title);
+      setJobData(job);
 
       // 2. Fetch only applications for this specific job context
       const data = await fetchApi<HRApplication[]>(`/api/v1/applications/hr?job_id=${jobId}`);
@@ -159,9 +164,17 @@ export default function JobPipelineDashboard({
                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
              </motion.button>
 
+             <button 
+               onClick={() => setIsModalOpen(true)}
+               className="flex items-center gap-2 px-5 py-2.5 bg-neutral-800/50 hover:bg-neutral-800 border border-neutral-700/40 text-neutral-300 text-xs font-bold tracking-wider rounded-xl transition-all"
+             >
+               <FileText className="w-4 h-4" />
+               View Job Description
+             </button>
+
              <button className="flex items-center gap-2 px-5 py-2.5 bg-neutral-800/50 hover:bg-neutral-800 border border-neutral-700/40 text-neutral-300 text-xs font-bold tracking-wider rounded-xl transition-all">
                <ExternalLink className="w-4 h-4" />
-               View Live Job
+               Live Job
              </button>
           </div>
         </motion.div>
@@ -226,6 +239,13 @@ export default function JobPipelineDashboard({
           )}
         </div>
       </motion.div>
+
+      <JobDetailsModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        job={jobData}
+        viewerRole="HR"
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Loader2, AlertTriangle } from "lucide-react";
 // Extracted components
 import { ToastContainer, Toast } from "@/components/candidate/ToastContainer";
 import { JobCard, Job, ApplicationResult } from "@/components/candidate/JobCard";
+import { JobDetailsModal } from "@/components/shared/JobDetailsModal";
 
 // ---------------------------------------------------------------------------
 // Animation variants
@@ -39,6 +40,7 @@ export default function CandidateDashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
   // Map job_id → application result
   const [applications, setApplications] = useState<Record<number, ApplicationResult>>({});
@@ -207,11 +209,22 @@ export default function CandidateDashboard() {
               isApplying={!!applyingFor[job.id]}
               onApply={handleApply}
               onNavigate={handleNavigate}
+              onViewDetails={setSelectedJob}
               variants={cardVariants}
             />
           ))}
         </motion.div>
       </motion.div>
+
+      <JobDetailsModal 
+        isOpen={!!selectedJob}
+        onClose={() => setSelectedJob(null)}
+        job={selectedJob}
+        viewerRole="CANDIDATE"
+        isApplying={selectedJob ? !!applyingFor[selectedJob.id] : false}
+        hasApplied={selectedJob ? !!applications[selectedJob.id] : false}
+        onApply={handleApply}
+      />
     </div>
   );
 }
