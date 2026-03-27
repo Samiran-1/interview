@@ -4,11 +4,17 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Loader2, Mail, Lock, User, Building, ChevronDown, ArrowRight } from "lucide-react";
+import { fetchApi } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
+
+interface RegisterResponse {
+  access_token: string;
+  token_type: string;
+  user_id: number;
+}
 
 export default function SignupPage() {
   const router = useRouter();
-  const { login } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"candidate" | "employer">("candidate");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +23,7 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  
+
   // Employer specific state
   const [companyName, setCompanyName] = useState("");
   const [role, setRole] = useState<"hr" | "hiring_manager">("hr");
@@ -27,49 +33,59 @@ export default function SignupPage() {
     setIsLoading(true);
     setError(null);
 
-    try {
-      if (activeTab === "employer") {
-        throw new Error("Employer registration is not yet supported in this demo.");
-      }
+    if (activeTab === "employer") {
+      setError("Employer registration is not yet supported in this demo.");
+      setIsLoading(false);
+      return;
+    }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/register`, {
+    let registrationData: RegisterResponse | null = null;
+
+    try {
+      registrationData = await fetchApi<RegisterResponse>("/api/v1/auth/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-           email: email, 
-           password: password,
-           full_name: name
+        body: JSON.stringify({
+          email,
+          password,
+          full_name: name,
         }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Registration Failed");
-      }
-
-      const data = await response.json();
-      const token = data.access_token;
-
-      document.cookie = `hireops_session=${token}; path=/; max-age=86400; samesite=lax`;
-      localStorage.setItem("token", token);
-
-      const payloadBase64 = token.split(".")[1];
-      const decodedPayload = JSON.parse(atob(payloadBase64.replace(/-/g, "+").replace(/_/g, "/")));
-
-      login({
-        id: parseInt(decodedPayload.sub),
-        role: (decodedPayload.role).toLowerCase() as "candidate" | "hr" | "manager",
-        company_id: decodedPayload.company_id,
-        email: decodedPayload.email,
-      });
-
-      router.push("/candidate");
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unable to register at this time.";
       console.error(err);
-      setError(err.message || "Unable to register at this time.");
+      setError(message);
+      return;
     } finally {
       setIsLoading(false);
     }
+
+    if (!registrationData) {
+      setError("Unexpected response from the server.");
+      return;
+    }
+
+    const token = registrationData.access_token;
+    document.cookie = `hireops_session=${token}; path=/; max-age=86400; samesite=lax`;
+    localStorage.setItem("token", token);
+
+    const payloadBase64 = token.split(".")[1] ?? "";
+    const decodedPayload = JSON.parse(
+      atob(payloadBase64.replace(/-/g, "+").replace(/_/g, "/"))
+    ) as {
+      sub?: string;
+      role?: string;
+      company_id?: number | null;
+      email?: string;
+    };
+
+    useAuthStore.getState().setAuth({
+      id: Number(decodedPayload.sub ?? 0),
+      role: ((decodedPayload.role ?? "candidate").toLowerCase() as "candidate" | "hr" | "manager"),
+      company_id: decodedPayload.company_id ?? null,
+      email: decodedPayload.email,
+    });
+
+    router.push("/candidate");
   };
 
   return (
@@ -95,21 +111,19 @@ export default function SignupPage() {
       <div className="relative flex p-1 mb-8 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
         <button
           onClick={() => setActiveTab("candidate")}
-          className={`relative z-10 w-1/2 py-2 text-sm font-medium transition-colors ${
-            activeTab === "candidate" ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
-          }`}
+          className={`relative z-10 w-1/2 py-2 text-sm font-medium transition-colors ${activeTab === "candidate" ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+            }`}
         >
           Candidate
         </button>
         <button
           onClick={() => setActiveTab("employer")}
-          className={`relative z-10 w-1/2 py-2 text-sm font-medium transition-colors ${
-            activeTab === "employer" ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
-          }`}
+          className={`relative z-10 w-1/2 py-2 text-sm font-medium transition-colors ${activeTab === "employer" ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+            }`}
         >
           Employer
         </button>
-        
+
         {/* Animated Background Indicator */}
         <motion.div
           className="absolute inset-1 bg-white rounded-md shadow-sm"
@@ -173,7 +187,7 @@ export default function SignupPage() {
           )}
 
           {/* Core Basic Details (Full Name, Email, Password) */}
-          <motion.div 
+          <motion.div
             key="core-fields"
             layout
             className="space-y-4"
@@ -232,7 +246,7 @@ export default function SignupPage() {
                 />
               </div>
             </div>
-            
+
             {/* Submit Button */}
             <motion.button
               layout
