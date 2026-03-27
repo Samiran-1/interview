@@ -20,3 +20,5 @@ build/
 *.swo
 node_modules/
 .git/
+app/__pycache__/
+app/*.pyc
