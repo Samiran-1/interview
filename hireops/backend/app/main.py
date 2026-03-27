@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
+from sqlalchemy import text
 
 from app.db import engine, AsyncSessionLocal
 from app.models import Base, User, Company, UserRole
@@ -34,11 +35,30 @@ async def seed_db():
         await session.commit()
         print("SEEDING COMPLETE: Created hr@hireops.com / password123")
 
+
+async def ensure_jobs_skills_column(conn):
+    """Add the jobs.skills column if the legacy table lacks it."""
+    column_check = await conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = :table AND column_name = :column
+            LIMIT 1
+            """
+        ),
+        {"table": "jobs", "column": "skills"},
+    )
+
+    if column_check.scalar_one_or_none() is None:
+        await conn.execute(text("ALTER TABLE jobs ADD COLUMN skills JSON"))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Asynchronous Table Creation
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await ensure_jobs_skills_column(conn)
     
     # Check if a seed is needed
     if os.getenv("NODE_ENV") != "production": # Always seed in dev for ease of use
