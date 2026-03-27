@@ -5,10 +5,10 @@ import { motion, Variants } from "framer-motion";
 import { Plus, Search, RefreshCw, LayoutGrid, Filter } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 
-// Components
 import { ActiveJobCard } from "@/components/hr/ActiveJobCard";
 import { SummaryStatistics } from "@/components/hr/SummaryStatistics";
 import { CreateJobModal } from "@/components/hr/CreateJobModal";
+import { JobDetailsModal } from "@/components/shared/JobDetailsModal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +51,7 @@ export default function HRDashboard() {
   const [jobs, setJobs] = useState<HRJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showJobModal, setShowJobModal] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<HRJob | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -174,7 +175,7 @@ export default function HRDashboard() {
            ) : filteredJobs.length > 0 ? (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredJobs.map((job) => (
-                  <ActiveJobCard key={job.id} job={job} />
+                  <ActiveJobCard key={job.id} job={job} onViewDetails={setSelectedJob} />
                 ))}
              </div>
            ) : (
@@ -191,7 +192,6 @@ export default function HRDashboard() {
         </motion.div>
       </motion.div>
 
-      {/* Post Job Modal */}
       <CreateJobModal 
         isOpen={showJobModal} 
         onClose={() => setShowJobModal(false)} 
@@ -199,6 +199,14 @@ export default function HRDashboard() {
           fetchJobs();
           setShowJobModal(false);
         }}
+      />
+
+      {/* Conditionally rendered Job details modal for grid clicks */}
+      <JobDetailsModal 
+        isOpen={!!selectedJob}
+        onClose={() => setSelectedJob(null)}
+        job={selectedJob}
+        viewerRole="HR"
       />
     </div>
   );
