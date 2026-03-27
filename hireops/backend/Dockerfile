@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir \
     alembic python-jose[cryptography] passlib[bcrypt] \
     bcrypt==3.2.0 \
     pydantic opencv-python-headless numpy \
-    celery redis python-multipart
+    celery redis python-multipart pydantic[email]
 
 # Stage 2: Production Runtime Environment
 FROM python:3.11-slim

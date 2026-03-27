@@ -40,7 +40,6 @@ export default function LoginPage() {
       localStorage.setItem("token", token); // Redundancy for local-only components
 
       // 3. Decode the JWT to hydrate the global Auth Store
-      // format: header.payload.signature (take index 1)
       const payloadBase64 = token.split(".")[1];
       const decodedPayload = JSON.parse(atob(payloadBase64.replace(/-/g, "+").replace(/_/g, "/")));
 
@@ -49,6 +48,7 @@ export default function LoginPage() {
         id: parseInt(decodedPayload.sub),
         role: (decodedPayload.role).toLowerCase() as "candidate" | "hr" | "manager",
         company_id: decodedPayload.company_id,
+        email: decodedPayload.email,
       });
 
       // 4. Redirect to the respective role dashboard

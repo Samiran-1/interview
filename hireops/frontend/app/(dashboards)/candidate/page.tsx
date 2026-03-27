@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, Variants } from "framer-motion";
 import { Loader2, AlertTriangle } from "lucide-react";
@@ -33,7 +33,7 @@ const cardVariants: Variants = {
 // ---------------------------------------------------------------------------
 // Main Candidate Page (Orchestrator)
 // ---------------------------------------------------------------------------
-export default function CandidateDashboard() {
+function CandidateDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -226,5 +226,20 @@ export default function CandidateDashboard() {
         onApply={handleApply}
       />
     </div>
+  );
+}
+
+export default function CandidateDashboard() {
+  return (
+    <Suspense 
+      fallback={
+        <div className="flex flex-col flex-1 items-center justify-center min-h-[60vh] gap-4 text-neutral-400 p-8">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+          <p className="text-sm tracking-wide">Preparing your opportunities…</p>
+        </div>
+      }
+    >
+      <CandidateDashboardContent />
+    </Suspense>
   );
 }
