@@ -251,10 +251,17 @@ async def upload_and_parse_resume(
         parsed_data = await extract_comprehensive_resume_data(resume_text)
         logger.info(f"[Resume Upload] Successfully extracted data for user {current_user.id}")
     except Exception as e:
-        logger.error(f"[Resume Upload] Error extracting resume: {str(e)}")
+        logger.error(
+            f"[Resume Upload] Error extracting resume: {type(e).__name__}: {str(e)}",
+            exc_info=e,
+        )
+        error_text = str(e).strip()
+        if not error_text:
+            error_text = f"{type(e).__name__} occurred while parsing the resume"
+
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Error parsing resume: {str(e)}"
+            detail=f"Error parsing resume: {error_text}"
         )
     
     # Find or create Candidate record (UPSERT)

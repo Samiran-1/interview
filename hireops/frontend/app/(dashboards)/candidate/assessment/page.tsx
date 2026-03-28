@@ -14,6 +14,7 @@ import {
     FlaskConical,
     BookOpen,
     Calendar,
+    Mic,
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 
@@ -76,7 +77,7 @@ const cardVariants: Variants = {
 function AssessmentCard({ application, jobData, onStartTest }: {
     application: Application;
     jobData: Job | null;
-    onStartTest: (type: "mcq" | "coding", applicationId: number) => void;
+    onStartTest: (type: "mcq" | "coding" | "voice", applicationId: number) => void;
 }) {
     const statusColors: Record<string, { bg: string; border: string; text: string; icon: React.ReactNode }> = {
         TEST_PENDING: {
@@ -222,12 +223,12 @@ function AssessmentCard({ application, jobData, onStartTest }: {
 
                     {isMcqDone && isCodingDone && (
                         <div className={`px-6 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${application.status === "REJECTED"
-                                ? "text-red-400 bg-red-500/5 border border-red-500/30"
-                                : application.status === "VOICE_PENDING"
-                                    ? "text-violet-400 bg-violet-500/5 border border-violet-500/30"
-                                    : application.status === "SHORTLISTED"
-                                        ? "text-emerald-400 bg-emerald-500/5 border border-emerald-500/30"
-                                        : "text-neutral-400 bg-neutral-800/20 border border-neutral-700/30"
+                            ? "text-red-400 bg-red-500/5 border border-red-500/30"
+                            : application.status === "VOICE_PENDING"
+                                ? "text-violet-400 bg-violet-500/5 border border-violet-500/30"
+                                : application.status === "SHORTLISTED"
+                                    ? "text-emerald-400 bg-emerald-500/5 border border-emerald-500/30"
+                                    : "text-neutral-400 bg-neutral-800/20 border border-neutral-700/30"
                             }`}>
                             {application.status === "REJECTED"
                                 ? "❌ Application Rejected"
@@ -237,6 +238,19 @@ function AssessmentCard({ application, jobData, onStartTest }: {
                                         ? "⭐ Shortlisted"
                                         : "Tests Completed - Under Review"}
                         </div>
+                    )}
+
+                    {isMcqDone && isCodingDone && application.status === "VOICE_PENDING" && (
+                        <motion.button
+                            whileHover={{ scale: 1.03 }}
+                            whileTap={{ scale: 0.97 }}
+                            onClick={() => onStartTest("voice", application.id)}
+                            className="flex items-center gap-2 px-6 py-3 bg-violet-500 text-white rounded-xl font-bold text-sm shadow-[0_0_20px_rgba(139,92,246,0.3)] hover:bg-violet-400 transition-all whitespace-nowrap"
+                        >
+                            <Mic className="w-4 h-4" />
+                            Start AI Interview
+                            <ChevronRight className="w-4 h-4 opacity-60" />
+                        </motion.button>
                     )}
                 </div>
             </div>
@@ -310,6 +324,8 @@ function AssessmentHubContent() {
     const handleStartTest = (type: "mcq" | "coding", applicationId: number) => {
         if (type === "mcq") {
             router.push(`/candidate/assessments/mcq/${applicationId}`);
+        } else if (type === "voice") {
+            router.push(`/candidate/assessments/voice/${applicationId}`);
         } else {
             router.push(`/candidate/assessments/coding/${applicationId}`);
         }
