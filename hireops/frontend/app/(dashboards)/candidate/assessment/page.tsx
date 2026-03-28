@@ -221,7 +221,7 @@ function AssessmentCard({ application, jobData, onStartTest }: {
                         </motion.button>
                     )}
 
-                    {isMcqDone && isCodingDone && (
+                    {isMcqDone && isCodingDone && application.status !== "VOICE_PENDING" && (
                         <div className={`px-6 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${application.status === "REJECTED"
                             ? "text-red-400 bg-red-500/5 border border-red-500/30"
                             : application.status === "VOICE_PENDING"
