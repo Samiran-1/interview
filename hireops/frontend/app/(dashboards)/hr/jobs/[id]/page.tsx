@@ -23,6 +23,7 @@ const PIPELINE_COLUMNS = [
   { key: "APPLIED", label: "Applied", color: "neutral", icon: "📥" },
   { key: "AI_SCREENING", label: "AI Screening", color: "amber", icon: "🤖" },
   { key: "TEST_PENDING", label: "Test Pending", color: "blue", icon: "📝" },
+  { key: "NEEDS_REVIEW", label: "Needs Review", color: "indigo", icon: "👀" },
   { key: "VOICE_PENDING", label: "Voice Pending", color: "violet", icon: "🎙️" },
   { key: "SHORTLISTED", label: "Shortlisted", color: "emerald", icon: "⭐" },
 ] as const;
@@ -72,8 +73,8 @@ export default function JobPipelineDashboard({
       setJobTitle(job.title);
       setJobData(job);
 
-      // 2. Fetch only applications for this specific job context
-      const data = await fetchApi<HRApplication[]>(`/api/v1/applications/hr?job_id=${jobId}`);
+      // 2. Fetch applications for this job from the HR endpoint
+      const data = await fetchApi<HRApplication[]>(`/api/v1/applications`);
       setApplications(data);
     } catch (err) {
       console.error("Failed to fetch job context:", err);
@@ -95,10 +96,12 @@ export default function JobPipelineDashboard({
   };
 
   const filteredApps = searchQuery.trim()
-    ? applications.filter((a) =>
-      a.candidate?.user?.full_name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    : applications;
+    ? applications
+      .filter((a) => a.job_id === parseInt(jobId))
+      .filter((a) =>
+        a.candidate?.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : applications.filter((a) => a.job_id === parseInt(jobId));
 
   // Dynamic column sorting based on assessment status
   const getColumnApps = (key: string) => {
@@ -113,16 +116,20 @@ export default function JobPipelineDashboard({
           return a.status === "AI_SCREENING" && a.match_score !== null && a.match_score >= 75;
 
         case "TEST_PENDING":
-          // MCQ test pending or in progress
-          return a.status === "TEST_PENDING" || (a.mcq_score === null && a.match_score !== null && a.match_score >= 75);
+          // MCQ test pending or in progress (no scores yet)
+          return a.status === "TEST_PENDING" && (a.mcq_score === null || a.coding_score === null);
+
+        case "NEEDS_REVIEW":
+          // Both tests complete, awaiting HR approval/rejection
+          return a.status === "TEST_PENDING" && a.mcq_score !== null && a.coding_score !== null;
 
         case "VOICE_PENDING":
           // MCQ passed, voice interview pending
-          return (a.mcq_score !== null && a.coding_score !== null && a.voice_score === null);
+          return a.status === "VOICE_PENDING" && a.mcq_score !== null && a.coding_score !== null && a.voice_score === null;
 
         case "SHORTLISTED":
           // All assessments passed, ready for final interviews
-          return a.status === "SHORTLISTED" || (a.mcq_score !== null && a.coding_score !== null && a.voice_score !== null);
+          return a.status === "SHORTLISTED" && a.mcq_score !== null && a.coding_score !== null && a.voice_score !== null;
 
         default:
           return false;

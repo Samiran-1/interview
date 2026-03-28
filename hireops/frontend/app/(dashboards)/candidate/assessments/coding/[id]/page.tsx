@@ -160,7 +160,7 @@ export default function CodingTestPage({
   }, [isRunning]);
 
   // ─── Submit Handler ──────────────────────────────────────────────
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (violationCount: number = 0) => {
     if (isSubmitting || isCompleted) return;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -168,10 +168,21 @@ export default function CodingTestPage({
     const score = 100; // MVP: mock full score
 
     try {
+      // 1. Save coding score
       await fetchApi(`/api/v1/applications/${applicationId}/coding`, {
         method: "PATCH",
         body: JSON.stringify({ score }),
       });
+
+      // 2. Determine next status based on violations
+      const nextStatus = violationCount > 0 ? 'NEEDS_REVIEW' : 'VOICE_PENDING';
+
+      // 3. Update application status
+      await fetchApi(`/api/v1/applications/${applicationId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
       setFinalScore(score);
     } catch (err: unknown) {
       const message =
@@ -192,7 +203,12 @@ export default function CodingTestPage({
 
     setIsSubmitting(false);
     setIsCompleted(true);
-  }, [applicationId, isSubmitting, isCompleted]);
+
+    // Redirect to assessment hub
+    setTimeout(() => {
+      router.push("/candidate/assessments");
+    }, 1500);
+  }, [applicationId, isSubmitting, isCompleted, router]);
 
   // Track violations
   const handleViolationTick = useCallback((count: number) => {
@@ -245,21 +261,19 @@ export default function CodingTestPage({
           className="relative max-w-lg w-full bg-neutral-900/60 border border-neutral-800/60 backdrop-blur-xl rounded-3xl p-10 text-center space-y-6"
         >
           <div
-            className={`mx-auto w-20 h-20 rounded-2xl flex items-center justify-center border ${
-              autoFailed
+            className={`mx-auto w-20 h-20 rounded-2xl flex items-center justify-center border ${autoFailed
                 ? "bg-red-500/10 border-red-500/30"
                 : passed
-                ? "bg-emerald-500/10 border-emerald-500/30"
-                : "bg-amber-500/10 border-amber-500/30"
-            }`}
+                  ? "bg-emerald-500/10 border-emerald-500/30"
+                  : "bg-amber-500/10 border-amber-500/30"
+              }`}
           >
             {autoFailed ? (
               <ShieldAlert className="w-10 h-10 text-red-400" />
             ) : (
               <Trophy
-                className={`w-10 h-10 ${
-                  passed ? "text-emerald-400" : "text-amber-400"
-                }`}
+                className={`w-10 h-10 ${passed ? "text-emerald-400" : "text-amber-400"
+                  }`}
               />
             )}
           </div>
@@ -268,16 +282,16 @@ export default function CodingTestPage({
             {autoFailed
               ? "Assessment Terminated"
               : passed
-              ? "Coding Assessment Passed!"
-              : "Assessment Complete"}
+                ? "Coding Assessment Passed!"
+                : "Assessment Complete"}
           </h2>
 
           <p className="text-neutral-400 text-sm leading-relaxed">
             {autoFailed
               ? "Your test was automatically submitted due to exceeding the maximum number of security violations."
               : passed
-              ? "Excellent work! Your solution passed all test cases. You'll advance to the next stage."
-              : "Your code has been submitted for evaluation."}
+                ? "Excellent work! Your solution passed all test cases. You'll advance to the next stage."
+                : "Your code has been submitted for evaluation."}
           </p>
 
           {/* Score Cards */}
@@ -297,16 +311,14 @@ export default function CodingTestPage({
               </p>
             </div>
             <div
-              className={`p-4 rounded-xl border ${
-                violations > 0
+              className={`p-4 rounded-xl border ${violations > 0
                   ? "bg-red-500/5 border-red-500/20"
                   : "bg-neutral-800/40 border-neutral-700/40"
-              }`}
+                }`}
             >
               <p
-                className={`text-2xl font-bold ${
-                  violations > 0 ? "text-red-400" : "text-neutral-300"
-                }`}
+                className={`text-2xl font-bold ${violations > 0 ? "text-red-400" : "text-neutral-300"
+                  }`}
               >
                 {violations}
               </p>

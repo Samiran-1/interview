@@ -316,3 +316,163 @@ def parse_resume_pdf(file_bytes: bytes) -> Dict[str, Any]:
         logger.error(f"Error parsing resume PDF: {str(e)}")
         raise
 
+
+async def extract_comprehensive_resume_data(resume_text: str):
+    """
+    Extract comprehensive, deeply nested JSON profile from resume text using LLM.
+    
+    Uses Ollama to intelligently parse structured data including:
+    - Contact information (name, email, phone, GitHub, LinkedIn)
+    - Work experience with detailed responsibilities
+    - Education history
+    - Projects with tech stacks
+    - Technical and soft skills
+    - Professional summary
+    - Total years of experience
+    
+    Args:
+        resume_text: Full text extracted from resume PDF
+        
+    Returns:
+        ComprehensiveResumeExtraction object with nested structure
+        
+    Raises:
+        Exception if LLM extraction fails
+    """
+    import json
+    from app.services.ollama_client import call_ollama
+    
+    # Build the extraction prompt with strict schema
+    extraction_prompt = f"""You are an expert technical recruiter. Your task is to extract structured information from the provided resume text.
+
+You MUST return a valid JSON object that strictly adheres to this exact schema:
+{{
+    "full_name": <string or null>,
+    "email": <string or null>,
+    "phone": <string or null>,
+    "github_url": <string or null>,
+    "linkedin_url": <string or null>,
+    "technical_skills": [<list of technical skill strings>],
+    "soft_skills": [<list of soft skill strings>],
+    "total_years_experience": <integer or null>,
+    "professional_summary": <string or null>,
+    "experience": [
+        {{
+            "job_title": <string or null>,
+            "company": <string or null>,
+            "start_date": <string YYYY-MM or null>,
+            "end_date": <string YYYY-MM or null>,
+            "responsibilities": [<list of responsibility strings>]
+        }}
+    ],
+    "education": [
+        {{
+            "degree": <string or null>,
+            "institution": <string or null>,
+            "graduation_year": <string YYYY or null>
+        }}
+    ],
+    "projects": [
+        {{
+            "name": <string or null>,
+            "description": <string or null>,
+            "tech_stack": [<list of technology strings>]
+        }}
+    ]
+}}
+
+CRITICAL RULES:
+1. Do NOT make up information. If a field is not present in the resume, return null or an empty list.
+2. Extract ALL work experience entries chronologically (newest first).
+3. For each experience, extract ALL responsibilities as bullet points.
+4. Extract ALL projects mentioned in the resume.
+5. Extract ALL technical skills mentioned, removing duplicates.
+6. Extract ALL soft skills mentioned, removing duplicates.
+7. Return ONLY valid JSON with NO additional text, NO markdown formatting, NO explanation.
+
+Resume Text:
+{resume_text}
+
+Return ONLY the JSON object:"""
+
+    try:
+        logger.info("[Resume Extraction] Calling Ollama for comprehensive resume extraction...")
+        
+        # Call Ollama for intelligent extraction
+        response_text = await call_ollama(extraction_prompt)
+        
+        if not response_text:
+            logger.error("[Resume Extraction] Ollama returned empty response")
+            raise ValueError("LLM returned empty response")
+        
+        logger.debug(f"[Resume Extraction] Raw response: {response_text[:200]}...")
+        
+        # Clean markdown code blocks if present
+        import re as regex
+        cleaned_response = regex.sub(r'```(?:json)?\s*\n?', '', response_text)
+        cleaned_response = regex.sub(r'\n?```', '', cleaned_response)
+        cleaned_response = cleaned_response.strip()
+        
+        # Parse JSON response
+        extracted_data = json.loads(cleaned_response)
+        logger.info(f"[Resume Extraction] Successfully extracted resume data")
+        
+        # Import the schema here to avoid circular imports
+        from app.api.v1.candidates import (
+            ComprehensiveResumeExtraction,
+            ExperienceItem,
+            EducationItem,
+            ProjectItem
+        )
+        
+        # Build the response object with proper Pydantic validation
+        result = ComprehensiveResumeExtraction(
+            full_name=extracted_data.get("full_name"),
+            email=extracted_data.get("email"),
+            phone=extracted_data.get("phone"),
+            github_url=extracted_data.get("github_url"),
+            linkedin_url=extracted_data.get("linkedin_url"),
+            technical_skills=extracted_data.get("technical_skills", []),
+            soft_skills=extracted_data.get("soft_skills", []),
+            total_years_experience=extracted_data.get("total_years_experience"),
+            professional_summary=extracted_data.get("professional_summary"),
+            experience=[
+                ExperienceItem(
+                    job_title=exp.get("job_title"),
+                    company=exp.get("company"),
+                    start_date=exp.get("start_date"),
+                    end_date=exp.get("end_date"),
+                    responsibilities=exp.get("responsibilities", [])
+                )
+                for exp in extracted_data.get("experience", [])
+            ],
+            education=[
+                EducationItem(
+                    degree=edu.get("degree"),
+                    institution=edu.get("institution"),
+                    graduation_year=edu.get("graduation_year")
+                )
+                for edu in extracted_data.get("education", [])
+            ],
+            projects=[
+                ProjectItem(
+                    name=proj.get("name"),
+                    description=proj.get("description"),
+                    tech_stack=proj.get("tech_stack", [])
+                )
+                for proj in extracted_data.get("projects", [])
+            ]
+        )
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"[Resume Extraction] JSON parsing failed: {str(e)}")
+        logger.error(f"[Resume Extraction] Response was: {response_text[:100]}")
+        raise ValueError(f"Failed to parse LLM response as JSON: {str(e)}")
+    except Exception as e:
+        logger.error(f"[Resume Extraction] Error in extract_comprehensive_resume_data: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"[Resume Extraction] Traceback: {traceback.format_exc()}")
+        raise
+

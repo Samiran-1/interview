@@ -123,6 +123,15 @@ function AssessmentCard({ application, jobData, onStartTest }: {
     const isCodingDone = application.coding_score !== null && application.coding_score !== undefined;
 
     const getStatusLabel = (status: string) => {
+        if (status === "REJECTED") {
+            return "❌ REJECTED";
+        }
+        if (status === "VOICE_PENDING") {
+            return "✓ APPROVED - VOICE INTERVIEW";
+        }
+        if (status === "SHORTLISTED") {
+            return "⭐ SHORTLISTED";
+        }
         if (isMcqDone && isCodingDone) {
             return "ASSESSMENTS COMPLETE";
         }
@@ -212,8 +221,21 @@ function AssessmentCard({ application, jobData, onStartTest }: {
                     )}
 
                     {isMcqDone && isCodingDone && (
-                        <div className="px-6 py-3 rounded-xl font-bold text-sm text-neutral-400 bg-neutral-800/20 border border-neutral-700/30 whitespace-nowrap">
-                            Tests Completed - Under Review
+                        <div className={`px-6 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${application.status === "REJECTED"
+                                ? "text-red-400 bg-red-500/5 border border-red-500/30"
+                                : application.status === "VOICE_PENDING"
+                                    ? "text-violet-400 bg-violet-500/5 border border-violet-500/30"
+                                    : application.status === "SHORTLISTED"
+                                        ? "text-emerald-400 bg-emerald-500/5 border border-emerald-500/30"
+                                        : "text-neutral-400 bg-neutral-800/20 border border-neutral-700/30"
+                            }`}>
+                            {application.status === "REJECTED"
+                                ? "❌ Application Rejected"
+                                : application.status === "VOICE_PENDING"
+                                    ? "✓ Approved - Awaiting Voice Interview"
+                                    : application.status === "SHORTLISTED"
+                                        ? "⭐ Shortlisted"
+                                        : "Tests Completed - Under Review"}
                         </div>
                     )}
                 </div>

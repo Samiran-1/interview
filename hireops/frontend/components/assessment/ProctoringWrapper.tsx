@@ -34,8 +34,8 @@ export interface ProctoringWrapperProps {
   maxWarnings?: number;
   /** Called each time a new violation is recorded. Receives the new count. */
   onViolation?: (count: number) => void;
-  /** Called when the wrapper force-submits (timer ran out OR max violations hit) */
-  onForceSubmit: () => void;
+  /** Called when the wrapper force-submits (timer ran out OR max violations hit). Receives violation count. */
+  onForceSubmit: (violationCount: number) => void;
   /** The actual test UI to render inside the secure environment */
   children: ReactNode;
 }
@@ -73,6 +73,7 @@ export function ProctoringWrapper({
 
   // Refs for closure stability
   const hasForceSubmitted = useRef(false);
+  const warningCountRef = useRef(0); // Strict tab-switch violation counter
   const onForceSubmitRef = useRef(onForceSubmit);
   onForceSubmitRef.current = onForceSubmit;
 
@@ -86,7 +87,7 @@ export function ProctoringWrapper({
   useEffect(() => {
     if (pipVideoRef.current && stream) {
       pipVideoRef.current.srcObject = stream;
-      pipVideoRef.current.play().catch(() => {});
+      pipVideoRef.current.play().catch(() => { });
     }
   }, [stream]);
 
@@ -111,21 +112,30 @@ export function ProctoringWrapper({
   useEffect(() => {
     if (phase !== "running") return;
 
-    const handleVisibility = () => {
-      if (document.hidden) {
-        setWarnings((prev) => {
-          const next = prev + 1;
-          alert(
-            `⚠️ WARNING ${next}/${maxWarnings}: You left the test environment. This violation has been recorded.`
-          );
-          return next;
-        });
+    const handleVisibilityChange = () => {
+      if (document.hidden && phase === 'running') {
+        // 1. Increment the strict ref
+        warningCountRef.current += 1;
+
+        // 2. Update the UI state
+        setWarnings(warningCountRef.current);
+
+        // 3. Evaluate based on the ref, NOT the state
+        if (warningCountRef.current >= maxWarnings) {
+          alert(`🛑 CRITICAL: Maximum violations (${maxWarnings}/${maxWarnings}) reached. Auto-submitting assessment.`);
+          if (!hasForceSubmitted.current) {
+            hasForceSubmitted.current = true;
+            onForceSubmitRef.current(warningCountRef.current);
+          }
+        } else {
+          alert(`⚠️ WARNING ${warningCountRef.current}/${maxWarnings}: You left the test environment. This violation has been recorded.`);
+        }
       }
     };
 
-    document.addEventListener("visibilitychange", handleVisibility);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [phase, maxWarnings]);
 
   // ─── Block Right-Click / Copy / Paste ──────────────────────────
@@ -153,7 +163,7 @@ export function ProctoringWrapper({
 
     if (totalWarnings >= maxWarnings && !hasForceSubmitted.current) {
       hasForceSubmitted.current = true;
-      onForceSubmitRef.current();
+      onForceSubmitRef.current(warningCountRef.current);
     }
   }, [totalWarnings, maxWarnings, onViolation]);
 
@@ -167,7 +177,7 @@ export function ProctoringWrapper({
           clearInterval(tick);
           if (!hasForceSubmitted.current) {
             hasForceSubmitted.current = true;
-            onForceSubmitRef.current();
+            onForceSubmitRef.current(warningCountRef.current);
           }
           return 0;
         }
@@ -355,7 +365,7 @@ export function ProctoringWrapper({
   // RUNNING PHASE — Secure Environment wrapping children
   // =====================================================================
   return (
-    <div ref={containerRef} className="min-h-screen h-screen w-full bg-neutral-950 flex flex-col select-none relative overflow-hidden">
+    <div ref={containerRef} className="fixed inset-0 z-[99999] h-screen w-screen overflow-y-auto bg-neutral-950 flex flex-col select-none">
       {/* Full-screen re-entry guard (uses existing component) */}
       <FullScreenGuard
         isFullScreen={isFullScreen}
@@ -404,14 +414,12 @@ export function ProctoringWrapper({
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
               <span className="relative flex h-2 w-2">
                 <span
-                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    isCameraActive ? "bg-emerald-400" : "bg-red-400"
-                  }`}
+                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isCameraActive ? "bg-emerald-400" : "bg-red-400"
+                    }`}
                 />
                 <span
-                  className={`relative inline-flex rounded-full h-2 w-2 ${
-                    isCameraActive ? "bg-emerald-500" : "bg-red-500"
-                  }`}
+                  className={`relative inline-flex rounded-full h-2 w-2 ${isCameraActive ? "bg-emerald-500" : "bg-red-500"
+                    }`}
                 />
               </span>
               <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
@@ -421,13 +429,12 @@ export function ProctoringWrapper({
 
             {/* Timer */}
             <div
-              className={`px-4 py-1.5 rounded-lg border text-sm font-mono font-bold tracking-widest ${
-                secondsLeft <= 60
-                  ? "bg-red-500/10 border-red-500/30 text-red-400 animate-pulse"
-                  : secondsLeft <= 120
+              className={`px-4 py-1.5 rounded-lg border text-sm font-mono font-bold tracking-widest ${secondsLeft <= 60
+                ? "bg-red-500/10 border-red-500/30 text-red-400 animate-pulse"
+                : secondsLeft <= 120
                   ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
                   : "bg-neutral-800/60 border-neutral-700/40 text-neutral-300"
-              }`}
+                }`}
             >
               {formatTime(secondsLeft)}
             </div>
@@ -481,11 +488,10 @@ export function ProctoringWrapper({
             <div className="flex items-center justify-between">
               <span className="text-xs text-neutral-400">Camera</span>
               <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  isCameraActive
-                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border border-red-500/20"
-                }`}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isCameraActive
+                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                  : "bg-red-500/10 text-red-400 border border-red-500/20"
+                  }`}
               >
                 {isCameraActive ? "Active" : "Off"}
               </span>
@@ -493,13 +499,12 @@ export function ProctoringWrapper({
             <div className="flex items-center justify-between">
               <span className="text-xs text-neutral-400">Violations</span>
               <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  totalWarnings === 0
-                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                    : totalWarnings < maxWarnings
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${totalWarnings === 0
+                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                  : totalWarnings < maxWarnings
                     ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                     : "bg-red-500/10 text-red-400 border border-red-500/20"
-                }`}
+                  }`}
               >
                 {totalWarnings}/{maxWarnings}
               </span>
@@ -507,11 +512,10 @@ export function ProctoringWrapper({
             <div className="flex items-center justify-between">
               <span className="text-xs text-neutral-400">Integrity</span>
               <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  totalWarnings < 2
-                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border border-red-500/20"
-                }`}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${totalWarnings < 2
+                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                  : "bg-red-500/10 text-red-400 border border-red-500/20"
+                  }`}
               >
                 {totalWarnings < 2 ? "Clean" : "Flagged"}
               </span>

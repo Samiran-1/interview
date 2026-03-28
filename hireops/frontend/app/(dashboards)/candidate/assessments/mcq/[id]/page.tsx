@@ -94,7 +94,7 @@ export default function MCQTestPage({
   }, [answers, totalQuestions]);
 
   // ─── Submit Handler ──────────────────────────────────────────────
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (violationCount: number = 0) => {
     if (isSubmitting || isCompleted) return;
     setIsSubmitting(true);
 
@@ -102,9 +102,19 @@ export default function MCQTestPage({
     setFinalScore(scorePercent);
 
     try {
+      // 1. Save MCQ score
       await fetchApi(`/api/v1/applications/${applicationId}/mcq`, {
         method: "PATCH",
         body: JSON.stringify({ score: scorePercent }),
+      });
+
+      // 2. Determine next status based on violations
+      const nextStatus = violationCount > 0 ? 'NEEDS_REVIEW' : 'VOICE_PENDING';
+
+      // 3. Update application status
+      await fetchApi(`/api/v1/applications/${applicationId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
       });
     } catch (err: unknown) {
       const message =
@@ -124,7 +134,12 @@ export default function MCQTestPage({
 
     setIsSubmitting(false);
     setIsCompleted(true);
-  }, [applicationId, calculateScore, isSubmitting, isCompleted]);
+
+    // Redirect to assessment hub
+    setTimeout(() => {
+      router.push("/candidate/assessments");
+    }, 1500);
+  }, [applicationId, calculateScore, isSubmitting, isCompleted, router]);
 
   // Track violations from wrapper
   const handleViolationTick = useCallback((count: number) => {

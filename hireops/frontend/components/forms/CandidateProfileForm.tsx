@@ -17,20 +17,37 @@ import {
   User,
   Sparkles,
   AlertCircle,
+  Trash2,
+  Zap,
+  BookOpen,
+  Building2,
+  Mail,
+  Phone,
+  Heart,
+  Briefcase,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-interface ProfileData {
-  candidate_id: number;
-  resume_filename: string | null;
+interface ExperienceItem {
+  job_title: string | null;
+  company: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  responsibilities: string[];
+}
+
+interface EducationItem {
+  degree: string | null;
+  institution: string | null;
+  graduation_year: number | null;
+}
+
+interface ProjectItem {
   name: string | null;
-  photo_url: string | null;
-  github_url: string | null;
-  linkedin_url: string | null;
-  skills: string[];
-  profile_complete: boolean;
+  description: string | null;
+  tech_stack: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +85,20 @@ export default function CandidateProfileForm({
   const [skillInput, setSkillInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
 
+  // Nested array state from resume extraction
+  const [experience, setExperience] = useState<ExperienceItem[]>([]);
+  const [education, setEducation] = useState<EducationItem[]>([]);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+
+  // Contact and summary info from resume extraction
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [professionalSummary, setProfessionalSummary] = useState("");
+  const [softSkills, setSoftSkills] = useState<string[]>([]);
+  const [softSkillInput, setSoftSkillInput] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState<number | null>(null);
+  const [showSoftSkillSuggestions, setShowSoftSkillSuggestions] = useState(false);
+
   // UI state
   const [isLoading, setIsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -78,6 +109,7 @@ export default function CandidateProfileForm({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const skillInputRef = useRef<HTMLInputElement>(null);
+  const softSkillInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch existing profile on mount ───────────────────────────
   useEffect(() => {
@@ -113,7 +145,7 @@ export default function CandidateProfileForm({
             setSkills(data.technical_skills);
           }
         }
-      } catch (err) {
+      } catch (err: unknown) {
         // First time — no profile yet. This is OK.
       } finally {
         setIsLoading(false);
@@ -167,8 +199,11 @@ export default function CandidateProfileForm({
         linkedin_url: string | null;
         technical_skills: string[];
         soft_skills: string[];
-        experience_years: number;
-        education: Record<string, unknown>;
+        professional_summary: string | null;
+        experience_years: number | null;
+        education: EducationItem[];
+        experience: ExperienceItem[];
+        projects: ProjectItem[];
         overall_score: number;
       }>("/api/v1/candidates/me/resume", {
         method: "POST",
@@ -204,6 +239,61 @@ export default function CandidateProfileForm({
           });
           return newSkills;
         });
+      }
+
+      // Populate nested arrays from comprehensive extraction
+      if (
+        (data as unknown as Record<string, unknown>).experience &&
+        Array.isArray((data as unknown as Record<string, unknown>).experience)
+      ) {
+        setExperience(
+          ((data as unknown as Record<string, unknown>).experience as ExperienceItem[]) || []
+        );
+      }
+      if (
+        (data as unknown as Record<string, unknown>).education &&
+        Array.isArray((data as unknown as Record<string, unknown>).education)
+      ) {
+        setEducation(
+          ((data as unknown as Record<string, unknown>).education as EducationItem[]) || []
+        );
+      }
+      if (
+        (data as unknown as Record<string, unknown>).projects &&
+        Array.isArray((data as unknown as Record<string, unknown>).projects)
+      ) {
+        setProjects(
+          ((data as unknown as Record<string, unknown>).projects as ProjectItem[]) || []
+        );
+      }
+
+      // Email, phone, and professional summary auto-population
+      if (data.email && !email) {
+        setEmail(data.email);
+      }
+      if (data.phone && !phone) {
+        setPhone(data.phone);
+      }
+      if (data.professional_summary && !professionalSummary) {
+        setProfessionalSummary(data.professional_summary);
+      }
+
+      // Soft skills auto-population
+      if (data.soft_skills && data.soft_skills.length > 0) {
+        setSoftSkills((prev) => {
+          const newSkills = [...prev];
+          data.soft_skills.forEach((skill: string) => {
+            if (!newSkills.includes(skill)) {
+              newSkills.push(skill);
+            }
+          });
+          return newSkills;
+        });
+      }
+
+      // Years of experience auto-population
+      if (data.experience_years && !yearsOfExperience) {
+        setYearsOfExperience(data.experience_years);
       }
 
       // Show success message
@@ -279,11 +369,97 @@ export default function CandidateProfileForm({
     setSkills((prev) => prev.filter((s) => s !== skill));
   };
 
+  const addSoftSkill = (skill?: string) => {
+    const s = (skill || softSkillInput).trim();
+    if (s && !softSkills.includes(s)) {
+      setSoftSkills((prev) => [...prev, s]);
+    }
+    setSoftSkillInput("");
+    setShowSoftSkillSuggestions(false);
+  };
+
+  const removeSoftSkill = (skill: string) => {
+    setSoftSkills((prev) => prev.filter((s) => s !== skill));
+  };
+
   const filteredSuggestions = SKILL_SUGGESTIONS.filter(
     (s) =>
       s.toLowerCase().includes(skillInput.toLowerCase()) &&
       !skills.includes(s)
   ).slice(0, 6);
+
+  const SOFT_SKILL_SUGGESTIONS = [
+    "Communication",
+    "Leadership",
+    "Teamwork",
+    "Problem Solving",
+    "Critical Thinking",
+    "Creativity",
+    "Adaptability",
+    "Time Management",
+    "Attention to Detail",
+    "Collaboration",
+    "Negotiation",
+    "Conflict Resolution",
+    "Public Speaking",
+    "Presentation",
+    "Decision Making",
+    "Project Management",
+    "Mentoring",
+    "Coaching",
+    "Emotional Intelligence",
+    "Empathy",
+  ];
+
+  const filteredSoftSkillSuggestions = SOFT_SKILL_SUGGESTIONS.filter(
+    (s) =>
+      s.toLowerCase().includes(softSkillInput.toLowerCase()) &&
+      !softSkills.includes(s)
+  ).slice(0, 6);
+
+  // ── Array Handlers ───────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleUpdateArrayItem = (
+    setter: React.Dispatch<React.SetStateAction<any[]>>,
+    array: any[],
+    index: number,
+    field: string,
+    value: any
+  ) => {
+    const updated = [...array];
+    updated[index] = { ...updated[index], [field]: value };
+    setter(updated);
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleRemoveArrayItem = (
+    setter: React.Dispatch<React.SetStateAction<any[]>>,
+    array: any[],
+    index: number
+  ) => {
+    setter(array.filter((_, i) => i !== index));
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleAddArrayItem = (
+    setter: React.Dispatch<React.SetStateAction<any[]>>,
+    array: any[],
+    emptyTemplate: any
+  ) => {
+    setter([...array, emptyTemplate]);
+  };
+
+  const handleRemoveResponsibility = (expIndex: number, respIndex: number) => {
+    const updated = [...experience];
+    updated[expIndex].responsibilities.splice(respIndex, 1);
+    setExperience(updated);
+  };
+
+  const handleRemoveTechStack = (projIndex: number, techIndex: number) => {
+    const updated = [...projects];
+    updated[projIndex].tech_stack.splice(techIndex, 1);
+    setProjects(updated);
+  };
 
   // ── Submit ────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -301,13 +477,41 @@ export default function CandidateProfileForm({
     setSuccess(false);
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const profileData: Record<string, unknown> = {
+        technical_skills: skills,
+        soft_skills: softSkills,
+      };
+
+      // Add contact info if available
+      if (email) {
+        profileData.email = email;
+      }
+      if (phone) {
+        profileData.phone = phone;
+      }
+      if (professionalSummary) {
+        profileData.professional_summary = professionalSummary;
+      }
+      if (yearsOfExperience) {
+        profileData.years_of_experience = yearsOfExperience;
+      }
+
+      // Include nested arrays if they have data
+      if (experience.length > 0) {
+        profileData.experience = experience;
+      }
+      if (education.length > 0) {
+        profileData.education = education;
+      }
+      if (projects.length > 0) {
+        profileData.projects = projects;
+      }
+
       await fetchApi("/api/v1/candidates/me", {
         method: "PUT",
         credentials: "include",
-        body: JSON.stringify({
-          technical_skills: skills,
-          soft_skills: [],
-        }),
+        body: JSON.stringify(profileData),
       });
 
       setSuccess(true);
@@ -620,6 +824,364 @@ export default function CandidateProfileForm({
           </div>
         </div>
 
+        {/* ── Work Experience ──────────────────────────────────── */}
+        {experience.length > 0 && (
+          <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+            <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <Building2 className="w-3 h-3" />
+              Work Experience
+              <span className="ml-auto text-[8px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                ✨ AI Extracted
+              </span>
+            </label>
+
+            <div className="space-y-3">
+              {experience.map((exp, expIndex) => (
+                <motion.div
+                  key={expIndex}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="bg-neutral-950/50 border border-neutral-800/30 rounded-xl p-4 space-y-3"
+                >
+                  {/* Job Title & Company Row */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={exp.job_title || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setExperience,
+                          experience,
+                          expIndex,
+                          "job_title",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Job Title"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={exp.company || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setExperience,
+                          experience,
+                          expIndex,
+                          "company",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Company"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                  </div>
+
+                  {/* Start Date & End Date Row */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={exp.start_date || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setExperience,
+                          experience,
+                          expIndex,
+                          "start_date",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Start Date (e.g. Jan 2020)"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={exp.end_date || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setExperience,
+                          experience,
+                          expIndex,
+                          "end_date",
+                          e.target.value
+                        )
+                      }
+                      placeholder="End Date (present)"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                  </div>
+
+                  {/* Responsibilities */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-neutral-500 mb-2 uppercase tracking-widest">
+                      Responsibilities
+                    </p>
+                    <div className="space-y-1.5 mb-2">
+                      {exp.responsibilities &&
+                        exp.responsibilities.map((resp, respIndex) => (
+                          <div
+                            key={respIndex}
+                            className="flex items-start gap-2 text-xs text-neutral-300 bg-neutral-900/30 rounded-lg px-2.5 py-1.5"
+                          >
+                            <span className="text-neutral-600 mt-0.5">•</span>
+                            <span className="flex-1">{resp}</span>
+                            <button
+                              onClick={() =>
+                                handleRemoveResponsibility(expIndex, respIndex)
+                              }
+                              className="text-neutral-500 hover:text-red-400 transition-colors shrink-0"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Remove Button */}
+                  <button
+                    onClick={() =>
+                      handleRemoveArrayItem(setExperience, experience, expIndex)
+                    }
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-red-400 hover:bg-red-950/20 rounded-lg transition-colors border border-red-500/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remove Experience
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() =>
+                handleAddArrayItem(setExperience, experience, {
+                  job_title: "",
+                  company: "",
+                  start_date: "",
+                  end_date: "",
+                  responsibilities: [],
+                })
+              }
+              className="w-full mt-3 py-2 flex items-center justify-center gap-1.5 text-xs text-indigo-400 hover:bg-indigo-950/20 rounded-lg transition-colors border border-indigo-500/20"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Experience
+            </motion.button>
+          </div>
+        )}
+
+        {/* ── Education ─────────────────────────────────────────── */}
+        {education.length > 0 && (
+          <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+            <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <BookOpen className="w-3 h-3" />
+              Education
+              <span className="ml-auto text-[8px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                ✨ AI Extracted
+              </span>
+            </label>
+
+            <div className="space-y-3">
+              {education.map((edu, eduIndex) => (
+                <motion.div
+                  key={eduIndex}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="bg-neutral-950/50 border border-neutral-800/30 rounded-xl p-4 space-y-3"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={edu.degree || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setEducation,
+                          education,
+                          eduIndex,
+                          "degree",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Degree"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={edu.institution || ""}
+                      onChange={(e) =>
+                        handleUpdateArrayItem(
+                          setEducation,
+                          education,
+                          eduIndex,
+                          "institution",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Institution"
+                      className="bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                  </div>
+
+                  <input
+                    type="number"
+                    value={edu.graduation_year || ""}
+                    onChange={(e) =>
+                      handleUpdateArrayItem(
+                        setEducation,
+                        education,
+                        eduIndex,
+                        "graduation_year",
+                        e.target.value ? parseInt(e.target.value) : null
+                      )
+                    }
+                    placeholder="Graduation Year"
+                    className="w-full bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                  />
+
+                  <button
+                    onClick={() =>
+                      handleRemoveArrayItem(setEducation, education, eduIndex)
+                    }
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-red-400 hover:bg-red-950/20 rounded-lg transition-colors border border-red-500/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remove Education
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() =>
+                handleAddArrayItem(setEducation, education, {
+                  degree: "",
+                  institution: "",
+                  graduation_year: null,
+                })
+              }
+              className="w-full mt-3 py-2 flex items-center justify-center gap-1.5 text-xs text-indigo-400 hover:bg-indigo-950/20 rounded-lg transition-colors border border-indigo-500/20"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Education
+            </motion.button>
+          </div>
+        )}
+
+        {/* ── Projects ──────────────────────────────────────────── */}
+        {projects.length > 0 && (
+          <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+            <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <Zap className="w-3 h-3" />
+              Projects
+              <span className="ml-auto text-[8px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                ✨ AI Extracted
+              </span>
+            </label>
+
+            <div className="space-y-3">
+              {projects.map((proj, projIndex) => (
+                <motion.div
+                  key={projIndex}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="bg-neutral-950/50 border border-neutral-800/30 rounded-xl p-4 space-y-3"
+                >
+                  <input
+                    type="text"
+                    value={proj.name || ""}
+                    onChange={(e) =>
+                      handleUpdateArrayItem(
+                        setProjects,
+                        projects,
+                        projIndex,
+                        "name",
+                        e.target.value
+                      )
+                    }
+                    placeholder="Project Name"
+                    className="w-full bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                  />
+
+                  <textarea
+                    value={proj.description || ""}
+                    onChange={(e) =>
+                      handleUpdateArrayItem(
+                        setProjects,
+                        projects,
+                        projIndex,
+                        "description",
+                        e.target.value
+                      )
+                    }
+                    placeholder="Project Description"
+                    className="w-full bg-neutral-900/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors resize-none h-24"
+                  />
+
+                  {/* Tech Stack */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-neutral-500 mb-2 uppercase tracking-widest">
+                      Technologies
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {proj.tech_stack &&
+                        proj.tech_stack.map((tech, techIndex) => (
+                          <span
+                            key={techIndex}
+                            className="flex items-center gap-1.5 px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-[10px] text-indigo-300 font-medium"
+                          >
+                            <Tag className="w-2.5 h-2.5" />
+                            {tech}
+                            <button
+                              onClick={() =>
+                                handleRemoveTechStack(projIndex, techIndex)
+                              }
+                              className="hover:text-red-400 transition-colors ml-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      handleRemoveArrayItem(setProjects, projects, projIndex)
+                    }
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-red-400 hover:bg-red-950/20 rounded-lg transition-colors border border-red-500/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remove Project
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() =>
+                handleAddArrayItem(setProjects, projects, {
+                  name: "",
+                  description: "",
+                  tech_stack: [],
+                })
+              }
+              className="w-full mt-3 py-2 flex items-center justify-center gap-1.5 text-xs text-indigo-400 hover:bg-indigo-950/20 rounded-lg transition-colors border border-indigo-500/20"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Project
+            </motion.button>
+          </div>
+        )}
+
         {/* ── Skills ────────────────────────────────────────────── */}
         <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
           <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
@@ -715,6 +1277,187 @@ export default function CandidateProfileForm({
           <p className="text-[10px] text-neutral-600 mt-2">
             {skills.length} skill{skills.length !== 1 ? "s" : ""} added
             {skills.length === 0 && " — add at least 1 to continue"}
+          </p>
+        </div>
+
+        {/* ── Email ─────────────────────────────────────────────── */}
+        <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <Mail className="w-3 h-3" />
+            Email
+            <span className="text-[9px] text-indigo-400 ml-1">✨ AI Extracted</span>
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your.email@example.com"
+            className="w-full bg-neutral-950/50 border border-neutral-800/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+          />
+          <p className="text-[10px] text-neutral-600 mt-2">
+            {email ? "✓ Email provided" : "Optional — auto-populated from resume"}
+          </p>
+        </div>
+
+        {/* ── Phone ─────────────────────────────────────────────── */}
+        <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <Phone className="w-3 h-3" />
+            Phone
+            <span className="text-[9px] text-indigo-400 ml-1">✨ AI Extracted</span>
+          </label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 (555) 123-4567"
+            className="w-full bg-neutral-950/50 border border-neutral-800/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+          />
+          <p className="text-[10px] text-neutral-600 mt-2">
+            {phone ? "✓ Phone provided" : "Optional — auto-populated from resume"}
+          </p>
+        </div>
+
+        {/* ── Professional Summary ───────────────────────────────── */}
+        <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <FileText className="w-3 h-3" />
+            Professional Summary
+            <span className="text-[9px] text-indigo-400 ml-1">✨ AI Extracted</span>
+          </label>
+          <textarea
+            value={professionalSummary}
+            onChange={(e) => setProfessionalSummary(e.target.value)}
+            placeholder="Write a brief professional summary..."
+            rows={4}
+            className="w-full bg-neutral-950/50 border border-neutral-800/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors resize-none"
+          />
+          <p className="text-[10px] text-neutral-600 mt-2">
+            {professionalSummary.length > 0
+              ? `${professionalSummary.length} characters`
+              : "Optional — auto-populated from resume"}
+          </p>
+        </div>
+
+        {/* ── Soft Skills ───────────────────────────────────────── */}
+        <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <Heart className="w-3 h-3" />
+            Soft Skills
+            <span className="text-[9px] text-indigo-400 ml-1">✨ AI Extracted</span>
+          </label>
+
+          {/* Soft skill tags */}
+          {softSkills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              <AnimatePresence>
+                {softSkills.map((s) => (
+                  <motion.span
+                    key={s}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-500/10 border border-rose-500/20 rounded-lg text-[11px] text-rose-300 font-medium"
+                  >
+                    <Heart className="w-3 h-3" />
+                    {s}
+                    <button
+                      onClick={() => removeSoftSkill(s)}
+                      className="hover:text-red-400 transition-colors ml-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </motion.span>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* Input with suggestions */}
+          <div className="relative">
+            <div className="flex gap-2">
+              <input
+                ref={softSkillInputRef}
+                type="text"
+                value={softSkillInput}
+                onChange={(e) => {
+                  setSoftSkillInput(e.target.value);
+                  setShowSoftSkillSuggestions(e.target.value.length > 0);
+                }}
+                onFocus={() => softSkillInput.length > 0 && setShowSoftSkillSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSoftSkillSuggestions(false), 200)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSoftSkill();
+                  }
+                }}
+                placeholder="Type a soft skill (e.g. Communication, Leadership)…"
+                className="flex-1 bg-neutral-950/50 border border-neutral-800/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+              />
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => addSoftSkill()}
+                className="px-4 py-2 bg-rose-600/20 border border-rose-500/30 text-rose-400 rounded-xl hover:bg-rose-600/30 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+              </motion.button>
+            </div>
+
+            {/* Autocomplete dropdown */}
+            <AnimatePresence>
+              {showSoftSkillSuggestions && filteredSoftSkillSuggestions.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="absolute top-full left-0 right-12 mt-1 bg-neutral-900/95 border border-neutral-800/60 rounded-xl overflow-hidden z-20 shadow-2xl backdrop-blur-xl"
+                >
+                  {filteredSoftSkillSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        addSoftSkill(s);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-300 hover:bg-rose-500/10 hover:text-rose-300 transition-colors flex items-center gap-2"
+                    >
+                      <Heart className="w-3 h-3 text-neutral-600" />
+                      {s}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <p className="text-[10px] text-neutral-600 mt-2">
+            {softSkills.length} soft skill{softSkills.length !== 1 ? "s" : ""} added
+            {softSkills.length === 0 && " — auto-populated from resume"}
+          </p>
+        </div>
+
+        {/* ── Years of Experience ───────────────────────────────── */}
+        <div className="bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-5 backdrop-blur-sm">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <Briefcase className="w-3 h-3" />
+            Years of Experience
+            <span className="text-[9px] text-indigo-400 ml-1">✨ AI Extracted</span>
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="70"
+            value={yearsOfExperience ?? ""}
+            onChange={(e) => setYearsOfExperience(e.target.value ? parseInt(e.target.value) : null)}
+            placeholder="e.g. 5"
+            className="w-full bg-neutral-950/50 border border-neutral-800/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500/40 transition-colors"
+          />
+          <p className="text-[10px] text-neutral-600 mt-2">
+            {yearsOfExperience !== null
+              ? `✓ ${yearsOfExperience} year${yearsOfExperience !== 1 ? "s" : ""}`
+              : "Optional — auto-populated from resume"}
           </p>
         </div>
 

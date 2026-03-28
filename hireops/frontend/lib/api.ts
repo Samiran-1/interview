@@ -24,10 +24,22 @@ function getCookie(name: string): string | undefined {
  * @param options - Standard RequestInit options
  */
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getCookie("hireops_session");
   const headers = new Headers(options.headers);
 
-  // 1. Automatic JWT Injection from the secure session cookie
+  // 1. Automatic JWT Injection - Check localStorage first, then cookies
+  let token: string | undefined;
+
+  if (typeof window !== "undefined") {
+    // Priority 1: Check localStorage for token (standard JWT storage)
+    token = localStorage.getItem("token") || localStorage.getItem("access_token");
+  }
+
+  // Priority 2: Fall back to secure session cookie
+  if (!token) {
+    token = getCookie("hireops_session");
+  }
+
+  // 3. Attach Bearer token to Authorization header
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -45,10 +57,10 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     credentials: options.credentials || "include",
   });
 
-  // 3. Centralized Error Handling
+  // 4. Centralized Error Handling
   if (!response.ok) {
     let errorMessage = `Request failed with status ${response.status}`;
-    
+
     try {
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -62,14 +74,18 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     } catch (parseError) {
       console.error("Failed to parse error response:", parseError);
     }
-    
+
     console.error(`API Error [${response.status}]:`, errorMessage);
 
-    // Explicit 401 handling (e.g., token expired)
+    // Explicit 401 handling (e.g., token expired or not authenticated)
     if (response.status === 401) {
-      // Clear session and Force logout if necessary
+      // Clear both storage mechanisms and force logout if necessary
       if (typeof window !== "undefined") {
+        localStorage.removeItem("token");
+        localStorage.removeItem("access_token");
         document.cookie = "hireops_session=; path=/; max-age=0;";
+        // Optionally redirect to login page
+        // window.location.href = "/login";
       }
     }
 

@@ -1,11 +1,13 @@
 """
 Candidates Profile API — HireOps Platform
 GET /api/v1/candidates/me — Retrieve current candidate profile.
-POST /api/v1/candidates/me/resume — Upload and parse resume PDF.
+POST /api/v1/candidates/me/resume — Upload and parse resume PDF with comprehensive LLM extraction.
 """
 
 from typing import Optional, Annotated
-from pydantic import BaseModel
+import json
+import logging
+from pydantic import BaseModel, ConfigDict
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,10 +15,87 @@ from sqlalchemy import select
 from app.db import get_db
 from app.models import User, Candidate
 from app.api.dependencies import get_current_user
-from app.services.resume_parser import parse_resume_pdf
+from app.services.resume_parser import parse_resume_pdf, extract_comprehensive_resume_data
 from app.schemas.candidate import CandidateOut
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive Resume Extraction Schemas (Nested)
+# ---------------------------------------------------------------------------
+class ExperienceItem(BaseModel):
+    """Schema for a single work experience entry."""
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    responsibilities: list[str] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EducationItem(BaseModel):
+    """Schema for a single education entry."""
+    degree: Optional[str] = None
+    institution: Optional[str] = None
+    graduation_year: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectItem(BaseModel):
+    """Schema for a single project entry."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tech_stack: list[str] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ComprehensiveResumeExtraction(BaseModel):
+    """
+    Comprehensive nested schema for complete candidate profile extraction.
+    Contains all contact info, experience, education, projects, and skills.
+    """
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    github_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    technical_skills: list[str] = []
+    soft_skills: list[str] = []
+    total_years_experience: Optional[int] = None
+    professional_summary: Optional[str] = None
+    experience: list[ExperienceItem] = []
+    education: list[EducationItem] = []
+    projects: list[ProjectItem] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumeUploadResponse(BaseModel):
+    """
+    Frontend-compatible response for resume upload endpoint.
+    Maps internal field names to frontend expectations.
+    """
+    resume_text: str = ""
+    name: Optional[str] = None  # Mapped from full_name
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    github_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    technical_skills: list[str] = []
+    soft_skills: list[str] = []
+    experience_years: Optional[int] = None  # Mapped from total_years_experience
+    professional_summary: Optional[str] = None
+    experience: list[ExperienceItem] = []
+    education: list[EducationItem] = []
+    projects: list[ProjectItem] = []
+    overall_score: int = 0
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -119,21 +198,26 @@ async def get_candidate_profile(
     )
 
 
-@router.post("/candidates/me/resume")
+@router.post("/candidates/me/resume", response_model=ResumeUploadResponse)
 async def upload_and_parse_resume(
     file: UploadFile = File(...),
     current_user: Annotated[User, Depends(get_current_user)] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Upload a resume PDF and parse it to extract skills, experience, education, and contact info.
+    Upload a resume PDF and extract comprehensive profile data using LLM.
     
-    This is an UPSERT operation:
-    - If a candidate record exists for the user, it updates the fields
-    - If no record exists, it creates a new one
+    This endpoint uses intelligent LLM-based extraction to:
+    - Extract contact information (name, email, phone, GitHub, LinkedIn)
+    - Parse work experience with responsibilities
+    - Extract education details
+    - Identify projects and tech stack
+    - Categorize technical and soft skills
+    - Calculate total years of experience
     
-    Returns the parsed data immediately for frontend auto-population.
-    Also stores the parsed data in the Candidate record for the current user.
+    Returns the complete structured JSON for frontend auto-population.
+    Also stores the data in the Candidate record (UPSERT operation).
+    
     Only accessible to users with role=CANDIDATE.
     """
     if current_user.role.value != "CANDIDATE":
@@ -156,13 +240,21 @@ async def upload_and_parse_resume(
             detail=f"Error reading file: {str(e)}"
         )
     
-    # Parse resume
+    # Parse resume with LLM-based comprehensive extraction
     try:
-        parsed_data = parse_resume_pdf(resume_bytes)
+        resume_data = parse_resume_pdf(resume_bytes)  # Returns dict
+        resume_text = resume_data.get("resume_text", "")  # Extract actual text string
+        
+        if not resume_text:
+            raise ValueError("Failed to extract text from resume")
+        
+        parsed_data = await extract_comprehensive_resume_data(resume_text)
+        logger.info(f"[Resume Upload] Successfully extracted data for user {current_user.id}")
     except Exception as e:
+        logger.error(f"[Resume Upload] Error extracting resume: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Error parsing resume PDF: {str(e)}"
+            detail=f"Error parsing resume: {str(e)}"
         )
     
     # Find or create Candidate record (UPSERT)
@@ -170,34 +262,55 @@ async def upload_and_parse_resume(
     candidate = result.scalar_one_or_none()
     
     if not candidate:
-        # Create new candidate record
         candidate = Candidate(user_id=current_user.id)
         db.add(candidate)
     
-    # Update with parsed data (both for new and existing records)
-    candidate.resume_text = parsed_data.get("resume_text")
-    candidate.technical_skills = parsed_data.get("technical_skills")
-    candidate.soft_skills = parsed_data.get("soft_skills")
-    candidate.experience_years = parsed_data.get("experience_years")
-    candidate.education = parsed_data.get("education")
-    candidate.overall_score = parsed_data.get("overall_score")
+    # Update candidate record with extracted data
+    candidate.resume_text = resume_text  # Store only the text string, not the dict
+    candidate.technical_skills = parsed_data.technical_skills
+    candidate.soft_skills = parsed_data.soft_skills
+    candidate.experience_years = parsed_data.total_years_experience
+    candidate.github = parsed_data.github_url
+    candidate.linkedin = parsed_data.linkedin_url
     
-    # Save social links from resume
-    candidate.github = parsed_data.get("github")
-    candidate.linkedin = parsed_data.get("linkedin")
+    # Store the full extracted data as JSON for reference
+    candidate.education = {
+        "education_list": [
+            {
+                "degree": edu.degree,
+                "institution": edu.institution,
+                "graduation_year": edu.graduation_year
+            }
+            for edu in parsed_data.education
+        ]
+    }
     
-    # Update user full_name if parsed data has a valid name and current name is empty/generic
-    parsed_name = parsed_data.get("name")
-    if parsed_name and parsed_name.strip():
-        # Only update if current name is empty, "User", or similar placeholder
+    # Update user full_name if we extracted one
+    if parsed_data.full_name and parsed_data.full_name.strip():
         if not current_user.full_name or current_user.full_name.lower() in ["user", "candidate", "unknown", ""]:
-            current_user.full_name = parsed_name
+            current_user.full_name = parsed_data.full_name
     
     await db.commit()
-    await db.refresh(candidate)
+    logger.info(f"[Resume Upload] Saved candidate record for user {current_user.id}")
     
-    # Return parsed data directly for frontend auto-population
-    return parsed_data
+    # Return comprehensive extracted data to frontend for auto-population
+    # Map internal field names to frontend expectations
+    return ResumeUploadResponse(
+        resume_text=resume_text,
+        name=parsed_data.full_name,
+        email=parsed_data.email,
+        phone=parsed_data.phone,
+        github_url=parsed_data.github_url,
+        linkedin_url=parsed_data.linkedin_url,
+        technical_skills=parsed_data.technical_skills,
+        soft_skills=parsed_data.soft_skills,
+        experience_years=parsed_data.total_years_experience,
+        professional_summary=parsed_data.professional_summary,
+        experience=parsed_data.experience,
+        education=parsed_data.education,
+        projects=parsed_data.projects,
+        overall_score=0
+    )
 
 
 @router.put("/candidates/me", response_model=CandidateProfileResponse)
