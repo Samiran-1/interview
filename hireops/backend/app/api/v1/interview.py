@@ -1,10 +1,13 @@
 import base64
+import json
 import logging
 import os
 import tempfile
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from openai import OpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +15,16 @@ from sqlalchemy.orm import joinedload
 
 from app.db import get_db
 from app.models import Application, ApplicationStatus, User
+from jose import jwt
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+LIVEKIT_ROOM_PREFIX = os.getenv("LIVEKIT_ROOM_PREFIX", "hireops-voice-")
 
 SYSTEM_PROMPT = (
     "You are a friendly, professional technical recruiter for HireOps. "
@@ -55,6 +62,37 @@ def _extract_audio_bytes(payload: Any) -> Optional[bytes]:
                 except Exception:
                     return candidate.encode("utf-8")
     return None
+
+
+def _create_livekit_token(
+    api_key: str,
+    api_secret: str,
+    identity: str,
+    room: str,
+    name: Optional[str] = None,
+    metadata: Optional[str] = None,
+    ttl: int = 3600,
+) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "jti": str(uuid.uuid4()),
+        "iss": api_key,
+        "sub": api_key,
+        "nbf": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=ttl)).timestamp()),
+        "identity": identity,
+        "grants": {
+            "room": room,
+            "room_join": True,
+        },
+    }
+
+    if name:
+        payload["name"] = name
+    if metadata:
+        payload["metadata"] = metadata
+
+    return jwt.encode(payload, api_secret, algorithm="HS256")
 
 
 @router.websocket("/stream/{application_id}")
@@ -236,3 +274,68 @@ async def websocket_endpoint(
     except Exception:
         logger.exception("Unexpected error during voice interview stream for %s", application_id)
         await websocket.close(code=1011)
+
+
+@router.get("/token")
+async def livekit_token(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit credentials are not configured.")
+
+    result = await db.execute(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(
+            joinedload(Application.job),
+            joinedload(Application.candidate).joinedload(User.candidate_profile),
+        )
+    )
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    candidate = application.candidate
+    candidate_profile = getattr(candidate, "candidate_profile", None)
+    job = application.job
+
+    job_title = job.title if job else "Open Role"
+    job_description = job.description or ""
+    job_skills = job.skills or []
+
+    resume_summary = (candidate_profile.resume_text or "").strip() if candidate_profile else ""
+    technical_skills = candidate_profile.technical_skills or [] if candidate_profile else []
+    soft_skills = candidate_profile.soft_skills or [] if candidate_profile else []
+    education_details = []
+    if candidate_profile and isinstance(candidate_profile.education, dict):
+        education_details = candidate_profile.education.get("education_list", [])
+
+    context_dict = {
+        "candidate_name": candidate.full_name,
+        "candidate_email": candidate.email,
+        "job_title": job_title,
+        "job_skills": job_skills,
+        "technical_skills": technical_skills,
+        "soft_skills": soft_skills,
+        "resume_summary": resume_summary[:600],
+        "recent_experience": education_details[:2],
+        "job_description": job_description[:600],
+    }
+    metadata_string = json.dumps(context_dict, ensure_ascii=False)
+
+    room_name = f"{LIVEKIT_ROOM_PREFIX}{application_id}"
+    token = _create_livekit_token(
+        LIVEKIT_API_KEY,
+        LIVEKIT_API_SECRET,
+        identity=f"candidate-{candidate.id}",
+        name=candidate.full_name,
+        metadata=metadata_string,
+        room=room_name,
+    )
+
+    return {
+        "token": token,
+        "room": room_name,
+    }

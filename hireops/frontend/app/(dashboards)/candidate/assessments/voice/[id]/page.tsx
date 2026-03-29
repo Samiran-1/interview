@@ -1,261 +1,103 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+    LiveKitRoom,
+    RoomAudioRenderer,
+    VoiceAssistantControlBar,
+    BarVisualizer,
+    useVoiceAssistant,
+} from "@livekit/components-react";
+import "@livekit/components-styles";
 
 import { ProctoringWrapper } from "@/components/assessment/ProctoringWrapper";
 
-type TranscriptMessage = {
-    id: string;
-    sender: "ai" | "system";
-    text: string;
-};
+const LiveKitScene = () => {
+    const { assistantState, audioTrack } = useVoiceAssistant();
 
-const createId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    return (
+        <div className="flex flex-col items-center gap-6 w-full">
+            <BarVisualizer
+                state={assistantState}
+                barCount={7}
+                trackRef={audioTrack}
+                className="h-48 w-full rounded-3xl bg-neutral-900/70"
+            />
+            <VoiceAssistantControlBar className="w-full" />
+            <RoomAudioRenderer />
+        </div>
+    );
+};
 
 export default function VoiceInterviewRoom({ params }: { params: { id: string } }) {
     const { id } = params;
     const router = useRouter();
 
-    const [isConnected, setIsConnected] = useState(false);
-    const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-    const [isRecording, setIsRecording] = useState(false);
-    const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
+    const [token, setToken] = useState("");
+    const [statusLog, setStatusLog] = useState<string[]>([]);
+    const [isFetching, setIsFetching] = useState(false);
+    const [tokenError, setTokenError] = useState("");
 
-    const wsRef = useRef<WebSocket | null>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const transcriptRef = useRef<HTMLDivElement | null>(null);
-    const aiSpeakingTimerRef = useRef<number | null>(null);
-
-    const pushTranscript = useCallback((sender: TranscriptMessage["sender"], text: string) => {
-        setTranscript((previous) => {
-            const next = [...previous, { id: createId(), sender, text }];
-            return next.slice(-32);
+    const addStatus = useCallback((message: string) => {
+        setStatusLog((previous) => {
+            const next = [...previous, message];
+            return next.slice(-6);
         });
     }, []);
 
-    const pulseAi = useCallback(() => {
-        setIsAiSpeaking(true);
-        if (aiSpeakingTimerRef.current) {
-            window.clearTimeout(aiSpeakingTimerRef.current);
-        }
-        aiSpeakingTimerRef.current = window.setTimeout(() => {
-            setIsAiSpeaking(false);
-            aiSpeakingTimerRef.current = null;
-        }, 2200);
-    }, []);
+    useEffect(() => {
+        let isActive = true;
+        setIsFetching(true);
+        setTokenError("");
+        addStatus("Requesting LiveKit interview token...");
 
-    const playAiAudio = useCallback((audioB64: string) => {
-        if (!audioB64) {
-            return;
-        }
-
-        if (aiSpeakingTimerRef.current) {
-            window.clearTimeout(aiSpeakingTimerRef.current);
-            aiSpeakingTimerRef.current = null;
-        }
-
-        const audio = new Audio(`data:audio/mp3;base64,${audioB64}`);
-        setIsAiSpeaking(true);
-
-        audio.onended = () => {
-            setIsAiSpeaking(false);
-        };
-
-        audio.onerror = () => {
-            setIsAiSpeaking(false);
-        };
-
-        audio
-            .play()
-            .catch(() => {
-                setIsAiSpeaking(false);
-            });
-    }, []);
-
-    const handleIncomingMessage = useCallback(
-        (event: MessageEvent) => {
-            if (typeof event.data !== "string") {
-                return;
-            }
-
+        const fetchToken = async () => {
             try {
-                const payload = JSON.parse(event.data);
-                const text = typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : "";
-                const audioB64 = typeof payload.audio_b64 === "string" ? payload.audio_b64 : "";
-
-                if (payload.event === "ai_speaking") {
-                    if (text.length) {
-                        pushTranscript("ai", text);
-                    }
-                    pulseAi();
-                } else if (payload.event === "ai_context") {
-                    if (text.length) {
-                        pushTranscript("system", text);
-                    }
-                } else if (payload.event === "error") {
-                    if (text.length) {
-                        pushTranscript("system", text);
-                    }
-                } else if (text.length) {
-                    pushTranscript("system", text);
+                const response = await fetch(`/api/v1/interview/token?application_id=${id}`);
+                if (!response.ok) {
+                    const message = (await response.text()) || "Failed to acquire a token.";
+                    throw new Error(message);
                 }
-
-                if (audioB64) {
-                    playAiAudio(audioB64);
-                }
-            } catch {
-                pushTranscript("system", "Received malformed realtime payload.");
-            }
-        },
-        [playAiAudio, pushTranscript, pulseAi]
-    );
-
-    const handlePushToTalk = useCallback(() => {
-        const recorder = mediaRecorderRef.current;
-
-        if (!recorder) {
-            pushTranscript("system", "Preparing your microphone stream. Try again in a moment.");
-            return;
-        }
-
-        if (!isConnected) {
-            pushTranscript("system", "Waiting for the AI connection to be ready.");
-            return;
-        }
-
-        if (recorder.state === "inactive") {
-            try {
-                recorder.start(250);
-                setIsRecording(true);
-                pushTranscript("system", "Recording... speak now and tap again to stop.");
-            } catch {
-                pushTranscript("system", "Unable to start recording right now. Please try again.");
-            }
-            return;
-        }
-
-        if (recorder.state === "recording") {
-            recorder.stop();
-            setIsRecording(false);
-            pushTranscript("system", "Audio chunk sent. Tap again when you are ready.");
-        }
-    }, [isConnected, pushTranscript]);
-
-    const stopRecording = useCallback(() => {
-        if (!mediaRecorderRef.current) {
-            return;
-        }
-
-        if (mediaRecorderRef.current.state !== "inactive") {
-            mediaRecorderRef.current.stop();
-        }
-        mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
-        mediaRecorderRef.current = null;
-    }, []);
-
-    const cleanUp = useCallback(
-        (shouldNavigate = false) => {
-            if (aiSpeakingTimerRef.current) {
-                window.clearTimeout(aiSpeakingTimerRef.current);
-                aiSpeakingTimerRef.current = null;
-            }
-
-            stopRecording();
-
-            if (wsRef.current) {
-                wsRef.current.onmessage = null;
-                wsRef.current.onopen = null;
-                wsRef.current.onerror = null;
-                wsRef.current.onclose = null;
-                wsRef.current.close();
-                wsRef.current = null;
-            }
-
-            setIsConnected(false);
-            setIsAiSpeaking(false);
-            setIsRecording(false);
-
-            if (shouldNavigate) {
-                router.push("/dashboards/candidate/congratulations");
-            }
-        },
-        [router, stopRecording]
-    );
-
-    const startInterview = useCallback(async () => {
-        if (wsRef.current) {
-            return;
-        }
-
-        if (typeof MediaRecorder === "undefined") {
-            pushTranscript("system", "Your browser does not support MediaRecorder.");
-            return;
-        }
-
-        pushTranscript("system", "Requesting microphone access and connecting to AI...");
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = recorder;
-
-            recorder.ondataavailable = (event) => {
-                if (!event.data.size || wsRef.current?.readyState !== WebSocket.OPEN) {
+                const payload = await response.json();
+                if (!isActive) {
                     return;
                 }
-                wsRef.current?.send(event.data);
-            };
+                if (!payload.token) {
+                    throw new Error("Invalid token response from the server.");
+                }
+                setToken(payload.token);
+                addStatus("Token acquired. Connecting to HireOps voice room...");
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "Unable to fetch LiveKit token.";
+                setTokenError(message);
+                addStatus(`Token fetch failed: ${message}`);
+            } finally {
+                if (isActive) {
+                    setIsFetching(false);
+                }
+            }
+        };
 
-            const socket = new WebSocket(`ws://localhost:8000/api/v1/interview/stream/${id}`);
-            socket.binaryType = "arraybuffer";
-            wsRef.current = socket;
-
-            socket.onopen = () => {
-                setIsConnected(true);
-                pushTranscript("system", "Connected. Use Push to Talk below to send your voice.");
-            };
-
-            socket.onmessage = handleIncomingMessage;
-            socket.onerror = () => {
-                pushTranscript("system", "Realtime connection failed. Please check your network.");
-            };
-
-            socket.onclose = () => {
-                setIsConnected(false);
-                stopRecording();
-                setIsRecording(false);
-                wsRef.current = null;
-            };
-        } catch {
-            pushTranscript("system", "Microphone access denied. Please allow access to continue.");
-            cleanUp(false);
-        }
-    }, [id, cleanUp, handleIncomingMessage, pushTranscript, stopRecording]);
-
-    useEffect(() => {
-        startInterview();
-        return () => cleanUp(false);
-    }, [startInterview, cleanUp]);
-
-    useEffect(() => {
-        const container = transcriptRef.current;
-        if (!container) {
-            return;
-        }
-        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-    }, [transcript]);
+        fetchToken();
+        return () => {
+            isActive = false;
+        };
+    }, [id, addStatus]);
 
     const handleEndInterview = useCallback(() => {
-        cleanUp(true);
-    }, [cleanUp]);
+        router.push("/dashboards/candidate/congratulations");
+    }, [router]);
 
     const handleForceSubmit = useCallback(
         (_warningCount: number) => {
-            cleanUp(true);
+            router.push("/dashboards/candidate/congratulations");
         },
-        [cleanUp]
+        [router]
     );
+
+    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "";
+    const canConnect = Boolean(token && livekitUrl);
 
     return (
         <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={handleForceSubmit}>
@@ -264,104 +106,60 @@ export default function VoiceInterviewRoom({ params }: { params: { id: string } 
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.2),_transparent_35%)] pointer-events-none" />
 
                 <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-12 gap-8">
-                    <div className="absolute top-6 right-6 flex items-center gap-2 text-[10px] uppercase tracking-[0.4em] text-neutral-400">
-                        <span
-                            className={`h-2 w-2 rounded-full ${isConnected ? "bg-emerald-400" : "bg-red-500"}`}
-                        />
-                        {isConnected ? "Connected" : "Connecting..."}
-                    </div>
-
-                    <div className="relative">
-                        <div
-                            className={`absolute inset-0 rounded-full blur-[70px] transition-colors duration-500 ${isAiSpeaking ? "bg-gradient-to-br from-teal-500/40 via-purple-500/30 to-transparent" : "bg-gradient-to-br from-sky-500/30 via-blue-500/20 to-transparent"
-                                }`}
-                        />
-                        <div
-                            className={`relative w-64 h-64 rounded-full border-4 ${isAiSpeaking ? "border-teal-300 bg-gradient-to-br from-teal-500/30 via-purple-500/40 to-transparent" : "border-sky-400/70 bg-gradient-to-br from-sky-500/20 to-transparent"
-                                } animate-pulse shadow-[0_0_40px_rgba(14,165,233,0.5)]`}
-                        >
-                            <div className="absolute inset-4 rounded-full border-2 border-white/10 flex flex-col items-center justify-center text-center gap-1">
-                                <p className="text-[10px] uppercase tracking-[0.6em] text-neutral-400">
-                                    Voice AI
+                    <div className="w-full max-w-5xl">
+                        {canConnect ? (
+                            <LiveKitRoom serverUrl={livekitUrl} token={token} connect audio video={false}>
+                                <div className="flex flex-col gap-6 p-6 rounded-3xl bg-black/60 border border-white/10 shadow-[0_25px_60px_rgba(15,118,255,0.35)]">
+                                    <LiveKitScene />
+                                    <p className="text-center text-sm text-neutral-400">
+                                        LiveKit handles the voice stream, audio playback, and the AI recruiter controls for you.
+                                    </p>
+                                </div>
+                            </LiveKitRoom>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-sky-500/60 bg-sky-500/5 p-8 min-h-[360px]">
+                                <p className="text-lg font-semibold text-white">
+                                    {tokenError ? "Token error" : "Preparing the voice room"}
                                 </p>
-                                <p className="text-3xl font-semibold text-white">
-                                    {isAiSpeaking ? "Speaking" : "Listening"}
-                                </p>
-                                <p className="text-xs text-neutral-500">
-                                    {isConnected ? "Live stream active" : "Establishing link"}
+                                <p className="text-sm text-neutral-400 text-center max-w-xl">
+                                    {tokenError || (isFetching ? "Connecting the AI recruiter..." : "Waiting to initialize LiveKit...")}
                                 </p>
                             </div>
-                        </div>
+                        )}
                     </div>
-
-                    <p className="text-sm text-neutral-400 max-w-xl text-center">
-                        {isAiSpeaking
-                            ? "The AI interviewer is responding. Keep calm and listen to the prompt."
-                            : "The circle glows blue while the AI waits—speak when it is calm to keep the audio clean."
-                        }
-                    </p>
                 </div>
 
-                <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-4">
+                <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3">
                     <div className="flex items-center justify-between">
                         <h2 className="text-[10px] font-semibold uppercase tracking-[0.5em] text-neutral-500">
-                            Live Transcript
+                            Live Status
                         </h2>
-                        <span className="text-[10px] text-neutral-500">{transcript.length} lines</span>
+                        <span className="text-[10px] text-neutral-500">{statusLog.length} updates</span>
                     </div>
 
-                    <div
-                        ref={transcriptRef}
-                        className="relative max-h-40 overflow-y-auto rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-2 custom-scrollbar"
-                    >
-                        {transcript.length === 0 ? (
-                            <p className="text-xs text-neutral-500">Waiting for the AI interviewer to speak...</p>
+                    <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center">
+                        {statusLog.length === 0 ? (
+                            <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it's ready.</p>
                         ) : (
-                            transcript.map((message) => (
-                                <div key={message.id} className="flex gap-3">
-                                    <span
-                                        className={`text-[10px] font-semibold tracking-[0.4em] uppercase ${message.sender === "ai" ? "text-emerald-300" : "text-indigo-300"
-                                            }`}
-                                    >
-                                        {message.sender === "ai" ? "AI" : "System"}
-                                    </span>
-                                    <p className="text-neutral-100 leading-tight">{message.text}</p>
-                                </div>
+                            statusLog.map((line, index) => (
+                                <p key={`${line}-${index}`} className="leading-tight">
+                                    {line}
+                                </p>
                             ))
                         )}
                     </div>
 
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="flex flex-wrap gap-3 w-full md:w-auto">
-                            <button
-                                type="button"
-                                onClick={handleEndInterview}
-                                className="w-full md:w-auto px-6 py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm tracking-widest transition hover:bg-red-400 shadow-[0_10px_40px_rgba(239,68,68,0.4)]"
-                            >
-                                End Interview
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handlePushToTalk}
-                                disabled={!isConnected || !mediaRecorderRef.current}
-                                aria-pressed={isRecording}
-                                className={`w-full md:w-auto px-6 py-3 rounded-2xl font-semibold text-sm tracking-widest transition shadow-[0_10px_40px_rgba(56,189,248,0.35)] ${isRecording ? "bg-teal-500 hover:bg-teal-400" : "bg-sky-500 hover:bg-sky-400"} text-white disabled:cursor-not-allowed disabled:opacity-60`}
-                            >
-                                {isRecording ? "Stop Recording" : "Push to Talk"}
-                            </button>
-                        </div>
-                        <div className="flex flex-col gap-1 text-xs text-neutral-500 max-w-xl">
-                            <p>
-                                Ending the interview closes your microphone stream and moves you to the Congratulations
-                                page.
-                            </p>
-                            <p>
-                                {isRecording
-                                    ? "Recording... Tap again to send the current snippet."
-                                    : "Push to Talk streams your voice once the connection is live."
-                                }
-                            </p>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={handleEndInterview}
+                            className="w-full md:w-auto px-6 py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm tracking-widest transition hover:bg-red-400 shadow-[0_10px_40px_rgba(239,68,68,0.4)]"
+                        >
+                            End Interview
+                        </button>
+                        <p className="text-xs text-neutral-500 max-w-xl">
+                            Ending the session closes the room and moves you to the Congratulations page.
+                        </p>
                     </div>
                 </div>
             </div>

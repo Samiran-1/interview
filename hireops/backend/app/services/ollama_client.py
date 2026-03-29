@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Use localhost for standalone/non-containerized environments
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = "qwen3.5:2b"
-OLLAMA_TIMEOUT = 30.0
+OLLAMA_TIMEOUT = 180.0
 
 
 async def call_ollama(prompt: str, model: str = OLLAMA_MODEL) -> Optional[str]:
@@ -37,7 +37,7 @@ async def call_ollama(prompt: str, model: str = OLLAMA_MODEL) -> Optional[str]:
     try:
         logger.info(f"[Ollama] Calling {OLLAMA_BASE_URL}/api/generate with model {model}")
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
             response = await client.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
                 json={

@@ -5,6 +5,7 @@ FROM python:3.11-slim as builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.local/bin:$PATH"
@@ -19,7 +20,9 @@ RUN pip install --no-cache-dir \
     bcrypt==3.2.0 \
     pydantic opencv-python-headless numpy \
     celery redis python-multipart pydantic[email] pydantic \
-    pdfplumber httpx
+    pdfplumber httpx openai \
+    livekit-agents livekit-api livekit-plugins-openai\
+    livekit-plugins-deepgram faster-whisper edge-tts numpy
 
 # Stage 2: Production Runtime Environment
 FROM python:3.11-slim
@@ -32,6 +35,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Map compiled binaries & site-packages from the heavy builder stage
