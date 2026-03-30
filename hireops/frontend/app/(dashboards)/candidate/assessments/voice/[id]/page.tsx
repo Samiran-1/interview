@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import {
     LiveKitRoom,
     RoomAudioRenderer,
@@ -32,12 +32,13 @@ const LiveKitScene = () => {
 
 export default function VoiceInterviewRoom() {
     const { id } = useParams() ?? {};
-    const router = useRouter();
 
     const [token, setToken] = useState("");
     const [statusLog, setStatusLog] = useState<string[]>([]);
     const [isFetching, setIsFetching] = useState(false);
     const [tokenError, setTokenError] = useState("");
+    const hasRequestedTokenRef = useRef(false);
+    const hasDispatchedAgentRef = useRef(false);
 
     const addStatus = useCallback((message: string) => {
         setStatusLog((previous) => {
@@ -47,6 +48,11 @@ export default function VoiceInterviewRoom() {
     }, []);
 
     useEffect(() => {
+        if (hasRequestedTokenRef.current) {
+            return;
+        }
+        hasRequestedTokenRef.current = true;
+
         let isActive = true;
         setIsFetching(true);
         setTokenError("");
@@ -71,7 +77,6 @@ export default function VoiceInterviewRoom() {
                 }
                 setToken(payload.token);
                 addStatus("Token acquired. Connecting to HireOps voice room...");
-                console.log(process.env.NEXT_PUBLIC_LIVEKIT_URL)
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Unable to fetch LiveKit token.";
                 setTokenError(message);
@@ -90,21 +95,44 @@ export default function VoiceInterviewRoom() {
     }, [id, addStatus]);
 
     const handleEndInterview = useCallback(() => {
-        // router.push("/dashboards/candidate/congratulations");
-    }, [router]);
+        // TODO: route to the post-interview destination after finalizing the flow.
+    }, []);
 
-    const handleForceSubmit = useCallback(
-        (_warningCount: number) => {
-            // router.push("/dashboards/candidate/congratulations");
-        },
-        [router]
-    );
+    const handleForceSubmit = useCallback(() => {
+        // TODO: route to the post-interview destination after finalizing the flow.
+    }, []);
 
-    const livekitUrl =
-        process.env.LIVEKIT_URL ??
-        process.env.NEXT_PUBLIC_LIVEKIT_URL ??
-        "";
-    console.log("LiveKit URL:", livekitUrl);
+    const handleRoomConnected = useCallback(async () => {
+        if (!id || hasDispatchedAgentRef.current) {
+            return;
+        }
+
+        hasDispatchedAgentRef.current = true;
+        addStatus("LiveKit room connected. Dispatching recruiter agent...");
+
+        try {
+            const response = await fetch(`/api/v1/interview/dispatch?application_id=${id}`, {
+                method: "POST",
+            });
+
+            if (!response.ok) {
+                const message = (await response.text()) || "Failed to dispatch recruiter agent.";
+                throw new Error(message);
+            }
+
+            const payload = await response.json();
+            addStatus(
+                payload.dispatched
+                    ? "Recruiter agent joined the room."
+                    : "Recruiter agent was already active in the room."
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to dispatch recruiter agent.";
+            addStatus(`Agent dispatch failed: ${message}`);
+        }
+    }, [id, addStatus]);
+
+    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "";
     const canConnect = Boolean(token && livekitUrl);
 
     return (
@@ -116,7 +144,14 @@ export default function VoiceInterviewRoom() {
                 <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-12 gap-8">
                     <div className="w-full max-w-5xl">
                         {canConnect ? (
-                            <LiveKitRoom serverUrl={livekitUrl} token={token} connect audio video={false}>
+                            <LiveKitRoom
+                                serverUrl={livekitUrl}
+                                token={token}
+                                connect
+                                audio
+                                video={false}
+                                onConnected={handleRoomConnected}
+                            >
                                 <div className="flex flex-col gap-6 p-6 rounded-3xl bg-black/60 border border-white/10 shadow-[0_25px_60px_rgba(15,118,255,0.35)]">
                                     <LiveKitScene />
                                     <p className="text-center text-sm text-neutral-400">
@@ -147,7 +182,7 @@ export default function VoiceInterviewRoom() {
 
                     <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center">
                         {statusLog.length === 0 ? (
-                            <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it's ready.</p>
+                            <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it&apos;s ready.</p>
                         ) : (
                             statusLog.map((line, index) => (
                                 <p key={`${line}-${index}`} className="leading-tight">
@@ -166,7 +201,7 @@ export default function VoiceInterviewRoom() {
                             End Interview
                         </button>
                         <p className="text-xs text-neutral-500 max-w-xl">
-                            Ending the session closes the room and moves you to the Congratulations page.
+                            Ending the session closes the room and moves you to the post-interview page.
                         </p>
                     </div>
                 </div>

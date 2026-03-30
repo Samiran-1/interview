@@ -5,7 +5,7 @@ import os
 from typing import Dict, Any
 from livekit import rtc
 from faster_whisper import WhisperModel
-from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, JobProcess, JobRequest, cli
+from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, JobProcess, JobRequest, cli, stt
 from livekit.agents.llm import ChatContext
 from livekit.agents.pipeline import VoicePipelineAgent
 from livekit.plugins import openai, silero
@@ -13,6 +13,7 @@ from livekit.plugins import openai, silero
 from local_audio import LocalSTT, LocalTTS
 
 logger = logging.getLogger(__name__)
+DEFAULT_OPENROUTER_LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "openai/gpt-4o-mini")
 
 def prewarm(proc: JobProcess):
     """
@@ -85,11 +86,16 @@ YOUR INSTRUCTIONS:
     vad = ctx.proc.userdata["vad"]
     prewarmed_whisper = ctx.proc.userdata["whisper_model"]
 
+    streaming_stt = stt.StreamAdapter(
+        stt=LocalSTT(model=prewarmed_whisper),
+        vad=vad,
+    )
+
     agent = VoicePipelineAgent(
         vad=vad,
-        stt=LocalSTT(model=prewarmed_whisper),
+        stt=streaming_stt,
         llm=openai.LLM(
-            model="meta-llama/llama-3.1-8b-instruct:free",
+            model=DEFAULT_OPENROUTER_LLM_MODEL,
             base_url="https://openrouter.ai/api/v1",
             api_key=os.getenv("OPENROUTER_API_KEY"),
         ),

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { motion, Variants } from "framer-motion";
 import {
   Briefcase,
@@ -117,7 +116,7 @@ export function JobCard({
             whileTap={{ scale: 0.97 }}
             onClick={(e) => {
               e.stopPropagation();
-              onNavigate(`/candidate/interview/${job.id}`);
+              onNavigate(`/candidate/assessments/voice/${application.id}`);
             }}
             className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-violet-500/15 text-violet-300 rounded-xl border border-violet-500/30 hover:bg-violet-500/25 transition-all"
           >

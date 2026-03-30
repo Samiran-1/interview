@@ -18,6 +18,7 @@ from app.models import Application, ApplicationStatus, User
 from jose import jwt
 from jose.exceptions import JWTError
 from livekit import api
+from livekit.protocol.agent_dispatch import CreateAgentDispatchRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -115,6 +116,27 @@ def _create_livekit_token(
         room,
     )
     return token
+
+
+async def _dispatch_recruiter_agent(room_name: str) -> bool:
+    async with api.LiveKitAPI() as lkapi:
+        existing_dispatches = await lkapi.agent_dispatch.list_dispatch(room_name=room_name)
+        recruiter_dispatches = [
+            dispatch for dispatch in existing_dispatches if dispatch.agent_name == "hireops-recruiter"
+        ]
+
+        if recruiter_dispatches:
+            logger.info("Recruiter agent already dispatched for room: %s", room_name)
+            return False
+
+        await lkapi.agent_dispatch.create_dispatch(
+            CreateAgentDispatchRequest(
+                agent_name="hireops-recruiter",
+                room=room_name,
+            )
+        )
+        logger.info("Dispatched 'hireops-recruiter' to room: %s", room_name)
+        return True
 
 
 @router.websocket("/stream/{application_id}")
@@ -357,15 +379,9 @@ async def livekit_token(
         metadata=metadata_string,
         room=room_name,
     )
-
-    # 3. Explicitly Dispatch the Agent
     try:
-        # LiveKitAPI automatically reads LIVEKIT_URL, API_KEY, and API_SECRET from your env
-        async with api.LiveKitAPI() as lkapi:
-            await lkapi.agent_dispatch.create_dispatch(
-                room=room_name,
-                agent_name="hireops-recruiter"
-            )
+
+    
         logger.info("✅ Explicitly dispatched 'hireops-recruiter' to room: %s", room_name)
     except Exception as e:
         logger.warning("⚠️ Agent dispatch signal failed (it may already be running): %s", e)
@@ -395,4 +411,32 @@ async def livekit_token(
     return {
         "token": token,
         "room": room_name,
+    }
+
+
+@router.post("/dispatch")
+async def dispatch_livekit_agent(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit credentials are not configured.")
+
+    result = await db.execute(select(Application.id).where(Application.id == application_id))
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    room_name = f"{LIVEKIT_ROOM_PREFIX}{application_id}"
+
+    try:
+        created = await _dispatch_recruiter_agent(room_name)
+    except Exception as exc:
+        logger.warning("Agent dispatch failed for room %s: %s", room_name, exc)
+        raise HTTPException(status_code=502, detail="Failed to dispatch recruiter agent.") from exc
+
+    return {
+        "room": room_name,
+        "dispatched": created,
     }
