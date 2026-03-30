@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
     LiveKitRoom,
@@ -39,15 +39,16 @@ const ActiveRoomControls = ({
     apiBaseUrl,
     statusLog,
     onEvaluationComplete,
+    connectionState,
 }: {
     applicationId: string;
     apiBaseUrl: string;
     statusLog: string[];
     onEvaluationComplete: () => void;
+    connectionState: ConnectionState;
 }) => {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
-    const connectionState = useConnectionState();
     const isConnected = connectionState === ConnectionState.Connected;
     const [isEvaluating, setIsEvaluating] = useState(false);
 
@@ -81,12 +82,6 @@ const ActiveRoomControls = ({
         }
     }, [apiBaseUrl, applicationId, onEvaluationComplete, room]);
 
-    const connectionHint = isConnected
-        ? "LiveKit connected and ready"
-        : connectionState === ConnectionState.Connecting
-            ? "Waiting for LiveKit to connect…"
-            : "LiveKit is offline";
-
     return (
         <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3 w-full">
             <div className="flex items-center justify-between">
@@ -95,19 +90,6 @@ const ActiveRoomControls = ({
                 </h2>
                 <span className="text-[10px] text-neutral-500">{statusLog.length} updates</span>
             </div>
-
-            <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center max-h-24 overflow-y-auto">
-                {statusLog.length === 0 ? (
-                    <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it&apos;s ready.</p>
-                ) : (
-                    statusLog.map((line, index) => (
-                        <p key={`${line}-${index}`} className="leading-tight">
-                            {line}
-                        </p>
-                    ))
-                )}
-            </div>
-            <p className="text-xs text-sky-400">{connectionHint}</p>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-4 w-full md:w-auto">
@@ -138,6 +120,69 @@ const ActiveRoomControls = ({
                         : "Ending the session closes the room and moves you to the post-interview page."}
                 </p>
             </div>
+        </div>
+    );
+};
+
+const StatusLogPanel = ({ statusLog }: { statusLog: string[] }) => (
+    <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center max-h-32 overflow-y-auto">
+        {statusLog.length === 0 ? (
+            <p className="text-xs text-neutral-500 px-2">Waiting for updates from the recruiter agent...</p>
+        ) : (
+            statusLog.map((line, index) => (
+                <p key={`${line}-${index}`} className="leading-tight">
+                    {line}
+                </p>
+            ))
+        )}
+    </div>
+);
+
+const ConnectionStatusBanner = ({
+    message,
+    connectionState,
+}: {
+    message: string;
+    connectionState: ConnectionState;
+}) => {
+    const statusTone = connectionState === ConnectionState.Connected ? "text-emerald-300" : "text-sky-400";
+    return (
+        <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/60 px-5 py-3 text-[11px] uppercase tracking-[0.4em] text-neutral-400">
+            <span className={`flex-1 text-sm ${statusTone}`}>{connectionState === ConnectionState.Connected ? "LiveKit connected" : message}</span>
+        </div>
+    );
+};
+
+const LiveKitExperienceContent = ({
+    applicationId,
+    apiBaseUrl,
+    statusLog,
+    onEvaluationComplete,
+    statusMessage,
+}: {
+    applicationId: string;
+    apiBaseUrl: string;
+    statusLog: string[];
+    onEvaluationComplete: () => void;
+    statusMessage: string;
+}) => {
+    const connectionState = useConnectionState();
+
+    return (
+        <div className="flex flex-col gap-6 p-6 rounded-3xl bg-black/60 border border-white/10 shadow-[0_25px_60px_rgba(15,118,255,0.35)]">
+            <ConnectionStatusBanner message={statusMessage} connectionState={connectionState} />
+            <LiveKitScene />
+            <p className="text-center text-sm text-neutral-400">
+                LiveKit handles the voice stream, audio playback, and the AI recruiter controls for you.
+            </p>
+            <StatusLogPanel statusLog={statusLog} />
+            <ActiveRoomControls
+                applicationId={applicationId}
+                apiBaseUrl={apiBaseUrl}
+                statusLog={statusLog}
+                onEvaluationComplete={onEvaluationComplete}
+                connectionState={connectionState}
+            />
         </div>
     );
 };
@@ -276,7 +321,18 @@ export default function VoiceInterviewRoom() {
         }
     }, [applicationId, addStatus, apiBaseUrl]);
 
-    const canConnect = Boolean(token && livekitUrl);
+    const livekitServerUrl = livekitUrl || undefined;
+    const livekitToken = token || undefined;
+    const livekitShouldConnect = Boolean(livekitServerUrl && livekitToken);
+    const livekitStatusMessage = useMemo(() => {
+        if (tokenError) {
+            return tokenError;
+        }
+        if (!token) {
+            return isFetching ? "Requesting LiveKit interview token..." : "Preparing interview data...";
+        }
+        return "LiveKit token acquired. Connecting to the room...";
+    }, [token, tokenError, isFetching]);
 
     return (
         <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={goToCongratulations}>
@@ -286,40 +342,24 @@ export default function VoiceInterviewRoom() {
 
                 <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-12 gap-8">
                     <div className="w-full max-w-5xl">
-                        {canConnect ? (
-                            <LiveKitRoom
-                                serverUrl={livekitUrl}
-                                token={token}
-                                connect
-                                audio
-                                video={false}
-                                onConnected={handleRoomConnected}
-                                onError={handleLiveKitError}
-                                onDisconnected={handleLiveKitDisconnected}
-                            >
-                                <div className="flex flex-col gap-6 p-6 rounded-3xl bg-black/60 border border-white/10 shadow-[0_25px_60px_rgba(15,118,255,0.35)]">
-                                    <LiveKitScene />
-                                    <p className="text-center text-sm text-neutral-400">
-                                        LiveKit handles the voice stream, audio playback, and the AI recruiter controls for you.
-                                    </p>
-                                    <ActiveRoomControls
-                                        applicationId={applicationId ?? ""}
-                                        apiBaseUrl={apiBaseUrl}
-                                        statusLog={statusLog}
-                                        onEvaluationComplete={goToCongratulations}
-                                    />
-                                </div>
-                            </LiveKitRoom>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-sky-500/60 bg-sky-500/5 p-8 min-h-[360px]">
-                                <p className="text-lg font-semibold text-white">
-                                    {tokenError ? "Token error" : "Preparing the voice room"}
-                                </p>
-                                <p className="text-sm text-neutral-400 text-center max-w-xl">
-                                    {tokenError || (isFetching ? "Connecting the AI recruiter..." : "Waiting to initialize LiveKit...")}
-                                </p>
-                            </div>
-                        )}
+                        <LiveKitRoom
+                            serverUrl={livekitServerUrl}
+                            token={livekitToken}
+                            connect={livekitShouldConnect}
+                            audio
+                            video={false}
+                            onConnected={handleRoomConnected}
+                            onError={handleLiveKitError}
+                            onDisconnected={handleLiveKitDisconnected}
+                        >
+                            <LiveKitExperienceContent
+                                applicationId={applicationId ?? ""}
+                                apiBaseUrl={apiBaseUrl}
+                                statusLog={statusLog}
+                                onEvaluationComplete={goToCongratulations}
+                                statusMessage={livekitStatusMessage}
+                            />
+                        </LiveKitRoom>
                     </div>
                 </div>
             </div>
