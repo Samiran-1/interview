@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from openai import OpenAI
+from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -16,12 +16,18 @@ from sqlalchemy.orm import joinedload
 from app.db import get_db
 from app.models import Application, ApplicationStatus, User
 from jose import jwt
+from jose.exceptions import JWTError
+from livekit import api
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+openrouter_client = (
+    AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
+    if OPENROUTER_API_KEY
+    else None
+)
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 LIVEKIT_ROOM_PREFIX = os.getenv("LIVEKIT_ROOM_PREFIX", "hireops-voice-")
@@ -64,6 +70,14 @@ def _extract_audio_bytes(payload: Any) -> Optional[bytes]:
     return None
 
 
+def _require_openrouter_client() -> AsyncOpenAI:
+    if not openrouter_client:
+        raise HTTPException(
+            status_code=503, detail="OpenRouter credentials are not configured."
+        )
+    return openrouter_client
+
+
 def _create_livekit_token(
     api_key: str,
     api_secret: str,
@@ -73,26 +87,34 @@ def _create_livekit_token(
     metadata: Optional[str] = None,
     ttl: int = 3600,
 ) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "jti": str(uuid.uuid4()),
-        "iss": api_key,
-        "sub": api_key,
-        "nbf": int(now.timestamp()),
-        "exp": int((now + timedelta(seconds=ttl)).timestamp()),
-        "identity": identity,
-        "grants": {
-            "room": room,
-            "room_join": True,
-        },
-    }
+    """
+    Generates a secure JWT token using the official LiveKit SDK.
+    Handles correct camelCase nesting and clock skew mitigation automatically.
+    """
+    # Create the specific permissions for this candidate
+    grant = api.VideoGrants(room_join=True, room=room)
+
+    # Build the token
+    access_token = (
+        api.AccessToken(api_key, api_secret)
+        .with_identity(identity)
+        .with_grants(grant)
+        .with_ttl(timedelta(seconds=ttl))
+    )
 
     if name:
-        payload["name"] = name
+        access_token.with_name(name)
     if metadata:
-        payload["metadata"] = metadata
+        access_token.with_metadata(metadata)
 
-    return jwt.encode(payload, api_secret, algorithm="HS256")
+    # The to_jwt() method automatically handles 'nbf' and 'exp' claims securely
+    token = access_token.to_jwt()
+    logger.debug(
+        "LiveKit token created for identity %s in room %s using official SDK",
+        identity,
+        room,
+    )
+    return token
 
 
 @router.websocket("/stream/{application_id}")
@@ -105,6 +127,7 @@ async def websocket_endpoint(
 
     await websocket.accept()
     application = None
+    client = _require_openrouter_client()
 
     try:
         result = await db.execute(
@@ -174,7 +197,7 @@ async def websocket_endpoint(
                     temp_path = tmp_file.name
 
                 with open(temp_path, "rb") as audio_file:
-                    transcription = openai_client.audio.transcriptions.create(
+                    transcription = await client.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_file,
                     )
@@ -199,8 +222,8 @@ async def websocket_endpoint(
 
                 messages.append({"role": "user", "content": user_text})
 
-                chat_response = openai_client.chat.completions.create(
-                    model="gpt-4o",
+                chat_response = await client.chat.completions.create(
+                    model="openai/gpt-4o-mini",
                     messages=messages,
                 )
 
@@ -223,7 +246,7 @@ async def websocket_endpoint(
 
                 messages.append({"role": "assistant", "content": ai_response_text})
 
-                speech_response = openai_client.audio.speech.create(
+                speech_response = await client.audio.speech.create(
                     model="tts-1",
                     voice="alloy",
                     input=ai_response_text,
@@ -334,6 +357,40 @@ async def livekit_token(
         metadata=metadata_string,
         room=room_name,
     )
+
+    # 3. Explicitly Dispatch the Agent
+    try:
+        # LiveKitAPI automatically reads LIVEKIT_URL, API_KEY, and API_SECRET from your env
+        async with api.LiveKitAPI() as lkapi:
+            await lkapi.agent_dispatch.create_dispatch(
+                room=room_name,
+                agent_name="hireops-recruiter"
+            )
+        logger.info("✅ Explicitly dispatched 'hireops-recruiter' to room: %s", room_name)
+    except Exception as e:
+        logger.warning("⚠️ Agent dispatch signal failed (it may already be running): %s", e)
+
+    try:
+        decoded_payload = jwt.decode(token, LIVEKIT_API_SECRET, algorithms=["HS256"])
+    except JWTError as exc:
+        logger.warning(
+            "LiveKit token decode failed for application %s: %s",
+            application_id,
+            exc,
+        )
+    else:
+        expires_at = None
+        if "exp" in decoded_payload:
+            expires_at = datetime.fromtimestamp(decoded_payload["exp"], timezone.utc).isoformat()
+        logger.debug(
+            "LiveKit token payload for application %s candidate %s: identity=%s room=%s expires=%s grants=%s",
+            application_id,
+            candidate.id,
+            decoded_payload.get("identity"),
+            decoded_payload.get("grants", {}).get("room"),
+            expires_at,
+            decoded_payload.get("grants"),
+        )
 
     return {
         "token": token,

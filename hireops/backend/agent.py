@@ -1,17 +1,42 @@
 import asyncio
 import json
+import logging
 import os
 from typing import Dict, Any
-
-from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli, rtc
+from livekit import rtc
+from faster_whisper import WhisperModel
+from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, JobProcess, JobRequest, cli
 from livekit.agents.llm import ChatContext
 from livekit.agents.pipeline import VoicePipelineAgent
-from livekit.plugins import openai
+from livekit.plugins import openai, silero
 
 from local_audio import LocalSTT, LocalTTS
 
+logger = logging.getLogger(__name__)
+
+def prewarm(proc: JobProcess):
+    """
+    Loads heavy models into memory during Docker boot.
+    This entirely eliminates the 5-10 second cold start delay.
+    """
+    logger.info("Prewarming Silero VAD...")
+    proc.userdata["vad"] = silero.VAD.load()
+
+    logger.info("Prewarming Faster-Whisper STT (base.en)...")
+    proc.userdata["whisper_model"] = WhisperModel("base.en", device="cpu", compute_type="int8")
+    logger.info("All models prewarmed and ready.")
+
+async def request_fnc(req: JobRequest) -> None:
+    """
+    Called when the LiveKit server has a job (room) that needs an agent.
+    We automatically accept all incoming requests for this interview room.
+    """
+    logger.info("🚨 Received job request for room: %s", req.room.name)
+    await req.accept()
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    logger.info("LiveKit connected successfully")
 
     # Wait for the candidate to join so we can read their metadata
     while not ctx.room.remote_participants:
@@ -56,9 +81,13 @@ YOUR INSTRUCTIONS:
 
     chat_ctx = ChatContext().append(role="system", text=system_prompt)
 
+    # Grab the pre-loaded models from RAM
+    vad = ctx.proc.userdata["vad"]
+    prewarmed_whisper = ctx.proc.userdata["whisper_model"]
+
     agent = VoicePipelineAgent(
-        vad=ctx.proc.userdata["vad"],
-        stt=LocalSTT(),
+        vad=vad,
+        stt=LocalSTT(model=prewarmed_whisper),
         llm=openai.LLM(
             model="meta-llama/llama-3.1-8b-instruct:free",
             base_url="https://openrouter.ai/api/v1",
@@ -77,4 +106,11 @@ YOUR INSTRUCTIONS:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    cli.run_app(
+        WorkerOptions(
+            agent_name="hireops-recruiter",
+            entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm,
+            request_fnc=request_fnc,
+        )
+    )

@@ -71,6 +71,7 @@ export default function VoiceInterviewRoom() {
                 }
                 setToken(payload.token);
                 addStatus("Token acquired. Connecting to HireOps voice room...");
+                console.log(process.env.NEXT_PUBLIC_LIVEKIT_URL)
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Unable to fetch LiveKit token.";
                 setTokenError(message);
@@ -103,6 +104,7 @@ export default function VoiceInterviewRoom() {
         process.env.LIVEKIT_URL ??
         process.env.NEXT_PUBLIC_LIVEKIT_URL ??
         "";
+    console.log("LiveKit URL:", livekitUrl);
     const canConnect = Boolean(token && livekitUrl);
 
     return (

@@ -11,8 +11,11 @@ from livekit.agents import stt, tts
 
 
 class LocalSTT(stt.STT):
-    def __init__(self, model_name: str = "base.en", compute_type: str = "int8") -> None:
-        self.model = WhisperModel(model_name, compute_type=compute_type)
+    def __init__(self, model: WhisperModel = None, model_name: str = "base.en", compute_type: str = "int8") -> None:
+        if model:
+            self.model = model
+        else:
+            self.model = WhisperModel(model_name, compute_type=compute_type)
         self.sample_rate = 16000
         self._frame_buffer: List[bytes] = []
         self._lock = asyncio.Lock()

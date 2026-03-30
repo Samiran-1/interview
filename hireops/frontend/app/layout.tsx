@@ -17,9 +17,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" style={{ colorScheme: "dark" }}>
+    <html lang="en" className="dark" style={{ colorScheme: "dark", userSelect: "auto" }}>
       <body
         className={`${inter.variable} font-sans bg-neutral-950 text-neutral-50 antialiased min-h-screen selection:bg-indigo-500/30 selection:text-indigo-200`}
+        style={{ userSelect: "auto" }}
       >
         {/* Deep Dark Mode Background with subtle Glassmorphism ambient glows */}
         <div className="fixed inset-0 z-[-1] pointer-events-none bg-neutral-950">

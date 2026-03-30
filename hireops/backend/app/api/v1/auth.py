@@ -27,13 +27,27 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
 
 # Password Hashing Strategy
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["argon2", "bcrypt"],
+    default="argon2",
+    deprecated="auto",
+)
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
     return pwd_context.hash(password)
+
+async def _upgrade_password_hash_if_needed(
+    db: AsyncSession, user: User, plain_password: str
+):
+    """Rehash passwords stored with deprecated schemes during login."""
+    if pwd_context.needs_update(user.hashed_password):
+        user.hashed_password = get_password_hash(plain_password)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -136,6 +150,8 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    await _upgrade_password_hash_if_needed(db, user, form_data.password)
+
     # 3. Issue Token with Tenant Scope
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
