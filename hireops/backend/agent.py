@@ -1,4 +1,5 @@
 import asyncio
+import httpx
 import json
 import logging
 import os
@@ -68,7 +69,7 @@ async def entrypoint(ctx: JobContext) -> None:
         recent_experience = json.dumps(recent_experience)
 
     system_prompt = f"""
-You are a friendly, professional technical recruiter for HireOps.
+You are a professional technical recruiter for HireOps.
 You are interviewing {candidate_name} for the position of {job_title}.
 
 JOB REQUIREMENTS:
@@ -109,11 +110,50 @@ YOUR INSTRUCTIONS:
     )
 
     agent.start(ctx.room)
-
     await agent.say(
-        "Hello! I'm ready when you are.",
+        "Hello! I am the HireOps AI Recruiter. I have your profile in front of me. Are you ready to begin the interview?",
         allow_interruptions=True,
     )
+
+    @ctx.room.on("disconnected")
+    def on_disconnected():
+        logger.info("Candidate left the room. Compiling transcript...")
+
+        transcript_parts = []
+        for message in agent.chat_ctx.messages:
+            if message.role == "user":
+                transcript_parts.append(f"Candidate: {message.content}")
+            elif message.role == "assistant":
+                transcript_parts.append(f"AI Recruiter: {message.content}")
+
+        transcript = "\n".join(transcript_parts).strip()
+        room_name = ctx.room.name or ""
+        app_id = room_name.split("-")[-1] if "-" in room_name else None
+
+        async def send_evaluation() -> None:
+            if not app_id or not transcript:
+                logger.info("Transcript evaluation skipped (missing data).")
+                return
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                try:
+                    response = await client.post(
+                        f"http://api:8000/api/v1/interview/{app_id}/evaluate",
+                        json={"transcript": transcript},
+                    )
+                    response.raise_for_status()
+                    logger.info("Transcript sent to backend for evaluation.")
+                except Exception as exc:
+                    logger.error("Failed to send transcript: %s", exc)
+
+        asyncio.create_task(send_evaluation())
+
+    logger.info("Recruiter agent started in room %s, sending greeting", ctx.room.name)
+    await agent.say(
+        "Hello! I'm ready when you are.",
+        allow_interruptions=False,
+    )
+    logger.info("Recruiter greeting finished in room %s", ctx.room.name)
 
 
 if __name__ == "__main__":

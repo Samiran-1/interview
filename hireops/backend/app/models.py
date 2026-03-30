@@ -17,6 +17,7 @@ class ApplicationStatus(str, enum.Enum):
     SHORTLISTED = "SHORTLISTED"                # Step 5: Passed all async steps
     SCHEDULED = "SCHEDULED"                    # Step 6: Scheduled with human manager
     COMPLETED = "COMPLETED"                    # Interview completed (AI + human review)
+    INTERVIEW_EVALUATED = "INTERVIEW_EVALUATED"  # AI evaluation completed
     HIRED = "HIRED"                            # Candidate accepted for the role
 
 class UserRole(str, enum.Enum):

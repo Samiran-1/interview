@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
     LiveKitRoom,
     RoomAudioRenderer,
     VoiceAssistantControlBar,
     BarVisualizer,
     useVoiceAssistant,
+    useLocalParticipant,
+    useRoomContext,
+    useConnectionState,
 } from "@livekit/components-react";
+import { ConnectionState, DisconnectReason } from "livekit-client";
 import "@livekit/components-styles";
 
 import { ProctoringWrapper } from "@/components/assessment/ProctoringWrapper";
@@ -30,6 +34,114 @@ const LiveKitScene = () => {
     );
 };
 
+const ActiveRoomControls = ({
+    applicationId,
+    apiBaseUrl,
+    statusLog,
+    onEvaluationComplete,
+}: {
+    applicationId: string;
+    apiBaseUrl: string;
+    statusLog: string[];
+    onEvaluationComplete: () => void;
+}) => {
+    const room = useRoomContext();
+    const { localParticipant } = useLocalParticipant();
+    const connectionState = useConnectionState();
+    const isConnected = connectionState === ConnectionState.Connected;
+    const [isEvaluating, setIsEvaluating] = useState(false);
+
+    const isMuted = !localParticipant?.isMicrophoneEnabled;
+
+    const toggleMute = useCallback(() => {
+        if (!isConnected || !localParticipant) {
+            return;
+        }
+        localParticipant.setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled);
+    }, [isConnected, localParticipant]);
+
+    const handleEndInterview = useCallback(async () => {
+        setIsEvaluating(true);
+        try {
+            const safeId = applicationId?.trim();
+            if (!safeId) {
+                console.warn("Cannot evaluate interview: missing application ID.");
+            } else {
+                await fetch(`${apiBaseUrl}/api/v1/interview/${safeId}/evaluate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ transcript: "Transcript captured by the AI worker on disconnect." }),
+                });
+            }
+        } catch (error) {
+            console.error("Failed to trigger evaluation:", error);
+        } finally {
+            room?.disconnect();
+            onEvaluationComplete();
+        }
+    }, [apiBaseUrl, applicationId, onEvaluationComplete, room]);
+
+    const connectionHint = isConnected
+        ? "LiveKit connected and ready"
+        : connectionState === ConnectionState.Connecting
+            ? "Waiting for LiveKit to connect…"
+            : "LiveKit is offline";
+
+    return (
+        <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3 w-full">
+            <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-semibold uppercase tracking-[0.5em] text-neutral-500">
+                    Live Status
+                </h2>
+                <span className="text-[10px] text-neutral-500">{statusLog.length} updates</span>
+            </div>
+
+            <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center max-h-24 overflow-y-auto">
+                {statusLog.length === 0 ? (
+                    <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it&apos;s ready.</p>
+                ) : (
+                    statusLog.map((line, index) => (
+                        <p key={`${line}-${index}`} className="leading-tight">
+                            {line}
+                        </p>
+                    ))
+                )}
+            </div>
+            <p className="text-xs text-sky-400">{connectionHint}</p>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <button
+                        type="button"
+                        onClick={toggleMute}
+                        className={`px-6 py-3 rounded-2xl font-semibold text-sm transition ${isMuted
+                            ? 'bg-amber-500/20 text-amber-500 border border-amber-500/50'
+                            : 'bg-neutral-800 text-white hover:bg-neutral-700'
+                            }`}
+                        disabled={!isConnected || isEvaluating}
+                    >
+                        {isMuted ? "Unmute Mic" : "Mute Mic"}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={handleEndInterview}
+                        disabled={!isConnected || isEvaluating}
+                        className="w-full md:w-auto px-6 py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm tracking-widest transition hover:bg-red-400 shadow-[0_10px_40px_rgba(239,68,68,0.4)] disabled:opacity-50"
+                    >
+                        {isEvaluating ? "Saving & Evaluating..." : "End Interview"}
+                    </button>
+                </div>
+                <p className="text-xs text-neutral-500 max-w-xl text-right">
+                    {isEvaluating
+                        ? "Compiling transcript and generating HR scorecard..."
+                        : "Ending the session closes the room and moves you to the post-interview page."}
+                </p>
+            </div>
+        </div>
+    );
+};
+
 export default function VoiceInterviewRoom() {
     const { id } = useParams() ?? {};
     const applicationId = Array.isArray(id) ? id[0] : id;
@@ -41,7 +153,7 @@ export default function VoiceInterviewRoom() {
     const hasRequestedTokenRef = useRef(false);
     const hasDispatchedAgentRef = useRef(false);
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "";
+    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "wss://hireops-3y5x2bk8.livekit.cloud";
 
     const addStatus = useCallback((message: string) => {
         setStatusLog((previous) => {
@@ -70,10 +182,6 @@ export default function VoiceInterviewRoom() {
                     throw new Error("Missing application identifier for LiveKit token.");
                 }
 
-                if (!livekitUrl) {
-                    throw new Error("Missing NEXT_PUBLIC_LIVEKIT_URL.");
-                }
-
                 const response = await fetch(
                     `${apiBaseUrl}/api/v1/interview/token?application_id=${applicationId}`,
                     { signal: controller.signal }
@@ -100,8 +208,8 @@ export default function VoiceInterviewRoom() {
                     error instanceof DOMException && error.name === "AbortError"
                         ? "Interview service timed out. Please try again."
                         : error instanceof Error
-                          ? error.message
-                          : "Unable to fetch LiveKit token.";
+                            ? error.message
+                            : "Unable to fetch LiveKit token.";
                 setTokenError(message);
                 addStatus(`Token fetch failed: ${message}`);
             } finally {
@@ -118,13 +226,25 @@ export default function VoiceInterviewRoom() {
         };
     }, [applicationId, addStatus, apiBaseUrl, livekitUrl]);
 
-    const handleEndInterview = useCallback(() => {
-        // TODO: route to the post-interview destination after finalizing the flow.
-    }, []);
+    const router = useRouter();
+    const goToCongratulations = useCallback(() => {
+        router.push("/candidate/congratulations");
+    }, [router]);
 
-    const handleForceSubmit = useCallback(() => {
-        // TODO: route to the post-interview destination after finalizing the flow.
-    }, []);
+    const handleLiveKitError = useCallback(
+        (error: Error) => {
+            addStatus(`LiveKit error: ${error.message}`);
+            setTokenError(error.message);
+        },
+        [addStatus, setTokenError],
+    );
+
+    const handleLiveKitDisconnected = useCallback(
+        (reason?: DisconnectReason) => {
+            addStatus(`LiveKit disconnected (${reason ?? "unknown"})`);
+        },
+        [addStatus],
+    );
 
     const handleRoomConnected = useCallback(async () => {
         if (!applicationId || hasDispatchedAgentRef.current) {
@@ -159,7 +279,7 @@ export default function VoiceInterviewRoom() {
     const canConnect = Boolean(token && livekitUrl);
 
     return (
-        <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={handleForceSubmit}>
+        <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={goToCongratulations}>
             <div className="min-h-screen bg-neutral-950 text-white relative flex flex-col">
                 <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-neutral-950 to-neutral-900 opacity-70 pointer-events-none" />
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.2),_transparent_35%)] pointer-events-none" />
@@ -174,12 +294,20 @@ export default function VoiceInterviewRoom() {
                                 audio
                                 video={false}
                                 onConnected={handleRoomConnected}
+                                onError={handleLiveKitError}
+                                onDisconnected={handleLiveKitDisconnected}
                             >
                                 <div className="flex flex-col gap-6 p-6 rounded-3xl bg-black/60 border border-white/10 shadow-[0_25px_60px_rgba(15,118,255,0.35)]">
                                     <LiveKitScene />
                                     <p className="text-center text-sm text-neutral-400">
                                         LiveKit handles the voice stream, audio playback, and the AI recruiter controls for you.
                                     </p>
+                                    <ActiveRoomControls
+                                        applicationId={applicationId ?? ""}
+                                        apiBaseUrl={apiBaseUrl}
+                                        statusLog={statusLog}
+                                        onEvaluationComplete={goToCongratulations}
+                                    />
                                 </div>
                             </LiveKitRoom>
                         ) : (
@@ -192,40 +320,6 @@ export default function VoiceInterviewRoom() {
                                 </p>
                             </div>
                         )}
-                    </div>
-                </div>
-
-                <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-[0.5em] text-neutral-500">
-                            Live Status
-                        </h2>
-                        <span className="text-[10px] text-neutral-500">{statusLog.length} updates</span>
-                    </div>
-
-                    <div className="rounded-2xl bg-black/20 border border-white/5 px-4 py-3 text-sm space-y-1 text-neutral-300 text-center">
-                        {statusLog.length === 0 ? (
-                            <p className="text-xs text-neutral-500 px-2">No updates yet. The AI agent will notify you when it&apos;s ready.</p>
-                        ) : (
-                            statusLog.map((line, index) => (
-                                <p key={`${line}-${index}`} className="leading-tight">
-                                    {line}
-                                </p>
-                            ))
-                        )}
-                    </div>
-
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <button
-                            type="button"
-                            onClick={handleEndInterview}
-                            className="w-full md:w-auto px-6 py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm tracking-widest transition hover:bg-red-400 shadow-[0_10px_40px_rgba(239,68,68,0.4)]"
-                        >
-                            End Interview
-                        </button>
-                        <p className="text-xs text-neutral-500 max-w-xl">
-                            Ending the session closes the room and moves you to the post-interview page.
-                        </p>
                     </div>
                 </div>
             </div>

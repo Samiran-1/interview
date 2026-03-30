@@ -53,12 +53,41 @@ async def ensure_jobs_skills_column(conn):
     if column_check.scalar_one_or_none() is None:
         await conn.execute(text("ALTER TABLE jobs ADD COLUMN skills JSON"))
 
+
+async def ensure_application_assessment_columns(conn):
+    """Add missing assessment columns to the applications table."""
+    needed_columns = {
+        "match_score": "INTEGER",
+        "mcq_score": "FLOAT",
+        "coding_score": "FLOAT",
+        "voice_score": "FLOAT",
+        "ai_feedback": "TEXT",
+    }
+
+    for column_name, sql_type in needed_columns.items():
+        column_check = await conn.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = :table AND column_name = :column
+                LIMIT 1
+                """
+            ),
+            {"table": "applications", "column": column_name},
+        )
+        if column_check.scalar_one_or_none() is None:
+            await conn.execute(
+                text(f"ALTER TABLE applications ADD COLUMN {column_name} {sql_type}")
+            )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Asynchronous Table Creation
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await ensure_jobs_skills_column(conn)
+        await ensure_application_assessment_columns(conn)
     
     # Check if a seed is needed
     if os.getenv("NODE_ENV") != "production": # Always seed in dev for ease of use

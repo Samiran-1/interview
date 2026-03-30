@@ -3,15 +3,17 @@ import json
 import logging
 import os
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import jwt
 from jose.exceptions import JWTError
 from livekit import api
 from livekit.protocol.agent_dispatch import CreateAgentDispatchRequest
 from openai import AsyncOpenAI
+from app.services.evaluator import generate_interview_scorecard
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -36,6 +38,10 @@ SYSTEM_PROMPT = (
     "You are a friendly, professional technical recruiter for HireOps. "
     "Keep responses concise (1-2 sentences). Ask the candidate about their React and backend experience."
 )
+
+
+class InterviewEvaluationRequest(BaseModel):
+    transcript: str
 
 
 def _extract_audio_bytes(payload: Any) -> Optional[bytes]:
@@ -396,6 +402,45 @@ async def livekit_token(
         "token": token,
         "room": room_name,
     }
+
+
+@router.post("/{application_id}/evaluate")
+async def evaluate_interview(
+    application_id: int,
+    payload: InterviewEvaluationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(joinedload(Application.job))
+    )
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    job_description = (application.job.description or application.job.title) if application.job else "General technical role"
+    job_description = (job_description or "General technical role").strip()
+
+    try:
+        scorecard = await generate_interview_scorecard(payload.transcript, job_description)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    technical_score = scorecard.get("technical_score")
+    if technical_score is not None:
+        try:
+            application.voice_score = float(technical_score)
+        except (TypeError, ValueError):
+            application.voice_score = None
+
+    application.ai_feedback = json.dumps(scorecard, ensure_ascii=False)
+    application.status = ApplicationStatus.INTERVIEW_EVALUATED
+
+    await db.commit()
+
+    return {"scorecard": scorecard}
 
 
 @router.post("/dispatch")
