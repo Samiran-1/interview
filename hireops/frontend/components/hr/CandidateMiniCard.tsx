@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Briefcase, Calendar, Loader2, ThumbsUp, Ban, AlertTriangle } from "lucide-react";
+import { Briefcase, Calendar, Loader2, ThumbsUp, Ban, AlertTriangle, FileText } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { fetchApi } from "@/lib/api";
@@ -40,11 +40,21 @@ interface CandidateMiniCardProps {
   columnKey: string;
 }
 
+interface VoiceEvaluation {
+  technical_score?: number;
+  communication_score?: number;
+  strengths?: string[];
+  weaknesses?: string[];
+  hire_recommendation?: string;
+  summary?: string;
+}
+
 export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
   const router = useRouter();
   const [scheduling, setScheduling] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+  const [showEvaluationDetails, setShowEvaluationDetails] = useState(false);
 
   const candidateName = app.candidate?.full_name || "Unknown Candidate";
   const candidateEmail = app.candidate?.email || "No email";
@@ -132,6 +142,29 @@ export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
     ? app.mcq_score
     : (app.match_score || null);
 
+  const evaluationData = useMemo<VoiceEvaluation | null>(() => {
+    if (!app.ai_feedback) {
+      return null;
+    }
+    try {
+      if (typeof app.ai_feedback === "string") {
+        return JSON.parse(app.ai_feedback) as VoiceEvaluation;
+      }
+      return app.ai_feedback as VoiceEvaluation;
+    } catch {
+      return null;
+    }
+  }, [app.ai_feedback]);
+
+  const strengths = Array.isArray(evaluationData?.strengths)
+    ? evaluationData!.strengths
+    : [];
+  const weaknesses = Array.isArray(evaluationData?.weaknesses)
+    ? evaluationData!.weaknesses
+    : [];
+
+  const evaluationReady = Boolean(evaluationData);
+
   return (
     <GlassCard
       initial={{ opacity: 0, scale: 0.95 }}
@@ -202,6 +235,93 @@ export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
           />
         </div>
       )}
+
+      {/* Evaluation toggle */}
+      <div className="mt-3 space-y-2">
+        <motion.button
+          type="button"
+          disabled={!evaluationReady}
+          onClick={() => evaluationReady && setShowEvaluationDetails((prev) => !prev)}
+          className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-semibold tracking-wide transition ${evaluationReady
+            ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-200 hover:border-indigo-400/50"
+            : "border-neutral-800/50 bg-neutral-900/60 text-neutral-500 cursor-not-allowed"
+            }`}
+        >
+          <FileText className="w-3 h-3" />
+          {evaluationReady
+            ? showEvaluationDetails
+              ? "Hide evaluation"
+              : "View evaluation"
+            : "Evaluation pending"
+          }
+        </motion.button>
+
+        {showEvaluationDetails && evaluationReady && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-3 bg-neutral-900/60 border border-neutral-800/60 rounded-2xl p-3 text-[11px] text-neutral-200"
+          >
+            {(evaluationData?.technical_score ?? evaluationData?.communication_score) !== undefined && (
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+                <span>Overall Score</span>
+                {evaluationData?.technical_score != null ? (
+                  <ScoreBadge score={Math.round(evaluationData.technical_score)} className="text-[10px]" />
+                ) : (
+                  <span className="text-neutral-400">—</span>
+                )}
+              </div>
+            )}
+
+            {evaluationData?.communication_score != null && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-neutral-500">Communication</span>
+                <span className="text-sm font-semibold text-emerald-400">
+                  {Math.round(evaluationData.communication_score)}%
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">Summary</p>
+              <p className="text-sm text-neutral-200 leading-tight">
+                {evaluationData?.summary ?? "No summary available yet."}
+              </p>
+            </div>
+
+            {strengths.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">Strengths</p>
+                <ul className="mt-1 list-disc list-inside space-y-0.5 text-[11px] text-neutral-300">
+                  {strengths.map((item, index) => (
+                    <li key={`strength-${index}-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {weaknesses.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">Opportunities</p>
+                <ul className="mt-1 list-disc list-inside space-y-0.5 text-[11px] text-neutral-300">
+                  {weaknesses.map((item, index) => (
+                    <li key={`weakness-${index}-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {evaluationData?.hire_recommendation && (
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+                <span>Recommendation</span>
+                <span className="text-sm font-semibold text-amber-300">
+                  {evaluationData.hire_recommendation}
+                </span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
 
       {/* Action Buttons - Needs Review: Show warning and approve/reject options */}
       {columnKey === "NEEDS_REVIEW" && bothTestsTaken && (

@@ -116,7 +116,7 @@ YOUR INSTRUCTIONS:
     )
 
     @ctx.room.on("disconnected")
-    def on_disconnected():
+    async def on_disconnected():
         logger.info("Candidate left the room. Compiling transcript...")
 
         transcript_parts = []
@@ -130,11 +130,15 @@ YOUR INSTRUCTIONS:
         room_name = ctx.room.name or ""
         app_id = room_name.split("-")[-1] if "-" in room_name else None
 
-        async def send_evaluation() -> None:
-            if not app_id or not transcript:
-                logger.info("Transcript evaluation skipped (missing data).")
-                return
+        if not transcript:
+            logger.warning("No transcript available for room %s — skipping evaluation.", room_name)
+            return
 
+        if not app_id:
+            logger.warning("Unable to determine application id for room %s — skipping evaluation.", room_name)
+            return
+
+        async def send_evaluation() -> None:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 try:
                     response = await client.post(

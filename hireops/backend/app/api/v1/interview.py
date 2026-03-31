@@ -44,6 +44,11 @@ class InterviewEvaluationRequest(BaseModel):
     transcript: str
 
 
+class TranscriptEvaluationResponse(BaseModel):
+    status: str
+    evaluation: dict
+
+
 def _extract_audio_bytes(payload: Any) -> Optional[bytes]:
     if not payload:
         return None
@@ -330,6 +335,89 @@ async def websocket_endpoint(
         await websocket.close(code=1011)
 
 
+@router.post("/{application_id}/evaluate", response_model=TranscriptEvaluationResponse)
+async def evaluate_interview(
+    application_id: int,
+    payload: InterviewEvaluationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    transcript = (payload.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript is required for evaluation.")
+
+    result = await db.execute(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(joinedload(Application.job))
+    )
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    job = application.job
+    job_title = job.title if job else "General Technical Role"
+    job_description = job.description if job and job.description else job_title
+
+    try:
+        evaluation = await generate_interview_scorecard(transcript, job_title, job_description)
+    except Exception as exc:
+        logger.exception("Interview evaluation failed for %s: %s", application_id, exc)
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    evaluation_payload = json.dumps(evaluation, ensure_ascii=False)
+
+    application.ai_feedback = evaluation_payload
+    tech_score = evaluation.get("technical_score")
+    try:
+        application.voice_score = float(tech_score) if tech_score is not None else None
+    except (ValueError, TypeError):
+        application.voice_score = None
+
+    application.status = ApplicationStatus.INTERVIEW_EVALUATED
+
+    try:
+        await db.commit()
+        await db.refresh(application)
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Failed to persist interview evaluation for %s", application_id)
+        raise HTTPException(status_code=500, detail=f"Failed to save evaluation: {exc}")
+
+    return TranscriptEvaluationResponse(status="evaluated", evaluation=evaluation)
+
+
+@router.post("/{application_id}/complete")
+async def complete_interview(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    if application.status == ApplicationStatus.VOICE_PENDING:
+        application.status = ApplicationStatus.INTERVIEW_EVALUATED
+        try:
+            await db.commit()
+            await db.refresh(application)
+        except Exception as exc:
+            await db.rollback()
+            logger.exception(
+                "Failed to mark interview complete for %s: %s",
+                application_id,
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="Failed to update interview status.")
+
+    return {
+        "status": "ok",
+        "application_status": application.status.value,
+    }
+
+
 @router.get("/token")
 async def livekit_token(
     application_id: int,
@@ -342,8 +430,8 @@ async def livekit_token(
         select(Application)
         .where(Application.id == application_id)
         .options(
-            joinedload(Application.job),
             joinedload(Application.candidate).joinedload(User.candidate_profile),
+            joinedload(Application.job),
         )
     )
     application = result.scalar_one_or_none()
@@ -415,73 +503,6 @@ async def livekit_token(
         "token": token,
         "room": room_name,
     }
-
-
-@router.post("/{application_id}/evaluate")
-async def evaluate_interview(
-    application_id: int,
-    payload: InterviewEvaluationRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Application)
-        .where(Application.id == application_id)
-        .options(joinedload(Application.job))
-    )
-    application = result.scalar_one_or_none()
-
-    if not application:
-        raise HTTPException(status_code=404, detail="Application not found.")
-
-    job_title = application.job.title if application.job else "General technical role"
-    job_description = (application.job.description or job_title) if application.job else "General technical role"
-    job_description = (job_description or "General technical role").strip()
-
-    transcript_text = (payload.transcript or "").strip()
-    if not transcript_text:
-        transcript_text = (application.voice_transcript or "").strip()
-
-    empty_transcript_placeholder = "Transcript not yet captured. Proceeding with empty transcript."
-    if not transcript_text:
-        transcript_text = empty_transcript_placeholder
-        logger.warning("Evaluation triggered without transcript for application %s", application_id)
-
-    if transcript_text == empty_transcript_placeholder:
-        scorecard = {
-            "technical_score": 0,
-            "communication_score": 0,
-            "strengths": [],
-            "weaknesses": [],
-            "hire_recommendation": "No Hire",
-            "summary": "Interview ended before any audio was captured."
-        }
-    else:
-        try:
-            scorecard = await generate_interview_scorecard(transcript_text, job_title, job_description)
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
-
-    # ... your existing code ...
-    technical_score = scorecard.get("technical_score")
-    if technical_score is not None:
-        try:
-            application.voice_score = float(technical_score)
-        except (TypeError, ValueError):
-            application.voice_score = None
-
-    # Dump the JSON into the application record
-    application.ai_feedback = json.dumps(scorecard, ensure_ascii=False)
-    application.status = ApplicationStatus.INTERVIEW_EVALUATED
-
-    # 🚨 SAFELY COMMIT TO THE DATABASE 🚨
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback() # Undo the broken transaction to prevent database locking
-        # Raise a proper 500 error that the frontend can actually read!
-        raise HTTPException(status_code=500, detail=f"Database save failed: {str(e)}")
-
-    return {"scorecard": scorecard}
 
 
 @router.post("/dispatch")

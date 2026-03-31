@@ -15,6 +15,7 @@ import {
     BookOpen,
     Calendar,
     Mic,
+    ShieldCheck,
 } from "lucide-react";
 import useSWR from "swr";
 import { swrFetcher } from "@/lib/api";
@@ -117,6 +118,12 @@ function AssessmentCard({ application, jobData, onStartTest }: {
             text: "text-indigo-400",
             icon: <Calendar className="w-4 h-4" />,
         },
+        INTERVIEW_EVALUATED: {
+            bg: "bg-emerald-500/5",
+            border: "border-emerald-500/30",
+            text: "text-emerald-400",
+            icon: <ShieldCheck className="w-4 h-4" />,
+        },
     };
 
     const statusConfig = statusColors[application.status] || statusColors.APPLIED;
@@ -133,6 +140,9 @@ function AssessmentCard({ application, jobData, onStartTest }: {
         }
         if (status === "SHORTLISTED") {
             return "⭐ SHORTLISTED";
+        }
+        if (status === "INTERVIEW_EVALUATED") {
+            return "✅ Interview Evaluated";
         }
         if (isMcqDone && isCodingDone) {
             return "ASSESSMENTS COMPLETE";
@@ -186,11 +196,6 @@ function AssessmentCard({ application, jobData, onStartTest }: {
                             Applied: {formatDate(application.created_at)}
                         </p>
 
-                        {application.match_score !== null && (
-                            <div className="px-3 py-1.5 rounded-lg bg-neutral-800/40 border border-neutral-700/40 text-xs font-semibold text-neutral-300">
-                                Match: {application.match_score}%
-                            </div>
-                        )}
                     </div>
                 </div>
 
@@ -357,7 +362,7 @@ function AssessmentHubContent() {
                 </motion.div>
 
                 {/* Pending Assessments Section */}
-                {applications.some((app) => ["TEST_PENDING", "VOICE_PENDING"].includes(app.status)) && (
+                {applications.some((app) => app.status === "TEST_PENDING" || app.status === "VOICE_PENDING") && (
                     <motion.div variants={cardVariants} className="space-y-4">
                         <h2 className="text-xl font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
                             <Clock className="w-5 h-5" />
@@ -368,7 +373,7 @@ function AssessmentHubContent() {
                             className="space-y-4"
                         >
                             {applications
-                                .filter((app) => ["TEST_PENDING", "VOICE_PENDING"].includes(app.status))
+                                .filter((app) => app.status === "TEST_PENDING" || app.status === "VOICE_PENDING")
                                 .map((app) => (
                                     <AssessmentCard
                                         key={app.id}
@@ -382,7 +387,7 @@ function AssessmentHubContent() {
                 )}
 
                 {/* Other Applications Section */}
-                {applications.some((app) => !["TEST_PENDING", "VOICE_PENDING"].includes(app.status)) && (
+                {applications.some((app) => app.status !== "TEST_PENDING" && app.status !== "VOICE_PENDING") && (
                     <motion.div variants={cardVariants} className="space-y-4">
                         <h2 className="text-xl font-semibold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
                             <CheckCircle2 className="w-5 h-5" />
@@ -393,7 +398,7 @@ function AssessmentHubContent() {
                             className="space-y-4"
                         >
                             {applications
-                                .filter((app) => !["TEST_PENDING", "VOICE_PENDING"].includes(app.status))
+                                .filter((app) => app.status !== "TEST_PENDING" && app.status !== "VOICE_PENDING")
                                 .map((app) => (
                                     <AssessmentCard
                                         key={app.id}

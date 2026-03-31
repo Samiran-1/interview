@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
         await ensure_application_assessment_columns(conn)
     
     # Check if a seed is needed
-    if os.getenv("NODE_ENV") != "production": # Always seed in dev for ease of use
+    if os.getenv("NODE_ENV") != "production":
         await seed_db()
         
     yield

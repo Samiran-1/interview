@@ -40,12 +40,14 @@ const ActiveRoomControls = ({
     statusLog,
     onEvaluationComplete,
     connectionState,
+    onStatusUpdate,
 }: {
     applicationId: string;
     apiBaseUrl: string;
     statusLog: string[];
     onEvaluationComplete: () => void;
     connectionState: ConnectionState;
+    onStatusUpdate: (message: string) => void;
 }) => {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
@@ -61,11 +63,38 @@ const ActiveRoomControls = ({
         localParticipant.setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled);
     }, [isConnected, localParticipant]);
 
+    const handleMarkComplete = useCallback(async () => {
+        if (!applicationId) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${apiBaseUrl}/api/v1/interview/${applicationId}/complete`, {
+                method: "POST",
+            });
+
+            if (!response.ok) {
+                const message = (await response.text()) || "Failed to mark interview complete.";
+                throw new Error(message);
+            }
+
+            onStatusUpdate("Interview marked complete.");
+        } catch (error) {
+            console.error("Interview completion sync failed:", error);
+            onStatusUpdate(
+                error instanceof Error
+                    ? `Completion sync failed: ${error.message}`
+                    : "Completion sync failed."
+            );
+        }
+    }, [apiBaseUrl, applicationId, onStatusUpdate]);
+
     const handleEndInterview = useCallback(() => {
         setIsEvaluating(true);
         room?.disconnect();
+        handleMarkComplete();
         onEvaluationComplete();
-    }, [onEvaluationComplete, room]);
+    }, [handleMarkComplete, onEvaluationComplete, room]);
 
     return (
         <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3 w-full">
@@ -144,12 +173,14 @@ const LiveKitExperienceContent = ({
     statusLog,
     onEvaluationComplete,
     statusMessage,
+    onStatusUpdate,
 }: {
     applicationId: string;
     apiBaseUrl: string;
     statusLog: string[];
     onEvaluationComplete: () => void;
     statusMessage: string;
+    onStatusUpdate: (message: string) => void;
 }) => {
     const connectionState = useConnectionState();
 
@@ -167,6 +198,7 @@ const LiveKitExperienceContent = ({
                 statusLog={statusLog}
                 onEvaluationComplete={onEvaluationComplete}
                 connectionState={connectionState}
+                onStatusUpdate={onStatusUpdate}
             />
         </div>
     );
@@ -182,6 +214,7 @@ export default function VoiceInterviewRoom() {
     const [tokenError, setTokenError] = useState("");
     const hasRequestedTokenRef = useRef(false);
     const hasDispatchedAgentRef = useRef(false);
+    const [shouldRedirectToCongrats, setShouldRedirectToCongrats] = useState(false);
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "wss://hireops-3y5x2bk8.livekit.cloud";
 
@@ -259,9 +292,16 @@ export default function VoiceInterviewRoom() {
     }, [applicationId, addStatus, apiBaseUrl, livekitUrl]);
 
     const router = useRouter();
-    const goToCongratulations = useCallback(() => {
+    useEffect(() => {
+        if (!shouldRedirectToCongrats) {
+            return;
+        }
         router.push("/candidate/congratulations");
-    }, [router]);
+    }, [router, shouldRedirectToCongrats]);
+
+    const queueRedirectToCongrats = useCallback(() => {
+        setShouldRedirectToCongrats(true);
+    }, []);
 
     const handleLiveKitError = useCallback(
         (error: Error) => {
@@ -322,7 +362,7 @@ export default function VoiceInterviewRoom() {
     }, [token, tokenError, isFetching]);
 
     return (
-        <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={goToCongratulations}>
+        <ProctoringWrapper testName="AI Voice Interview" onForceSubmit={queueRedirectToCongrats}>
             <div className="min-h-screen bg-neutral-950 text-white relative flex flex-col">
                 <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-neutral-950 to-neutral-900 opacity-70 pointer-events-none" />
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.2),_transparent_35%)] pointer-events-none" />
@@ -343,8 +383,9 @@ export default function VoiceInterviewRoom() {
                                 applicationId={applicationId ?? ""}
                                 apiBaseUrl={apiBaseUrl}
                                 statusLog={statusLog}
-                                onEvaluationComplete={goToCongratulations}
+                                onEvaluationComplete={queueRedirectToCongrats}
                                 statusMessage={livekitStatusMessage}
+                                onStatusUpdate={addStatus}
                             />
                         </LiveKitRoom>
                     </div>
