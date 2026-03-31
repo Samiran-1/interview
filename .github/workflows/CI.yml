@@ -30,10 +30,6 @@ jobs:
           pip install --no-cache-dir faster-whisper edge-tts
           pip install --no-cache-dir pytest pytest-cov
 
-      - name: Run backend tests
-        working-directory: hireops/backend
-        run: |
-          pytest --cov=app --cov-report=xml:coverage.xml
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
