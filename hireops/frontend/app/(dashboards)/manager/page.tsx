@@ -2,6 +2,16 @@
 
 import { motion, Variants } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { fetchApi } from "@/lib/api";
 
@@ -30,6 +40,11 @@ interface JobPipelineEntry {
   title: string;
   applicant_count: number;
   interviews_pending: number;
+}
+
+interface ChartPoint extends JobPipelineEntry {
+  gradientId: string;
+  color: string;
 }
 
 export default function ManagerDashboard() {
@@ -70,11 +85,18 @@ export default function ManagerDashboard() {
   );
 
   const featuredJobs = useMemo(() => jobPipeline.slice(0, 4), [jobPipeline]);
-  const maxApplications = useMemo(
-    () => Math.max(...jobPipeline.map((job) => job.applicant_count), 1),
-    [jobPipeline]
-  );
   const totalJobs = jobPipeline.length;
+
+  const chartPalette = ["#6366f1", "#22d3ee", "#34d399", "#f97316"];
+  const chartData = useMemo<ChartPoint[]>(
+    () =>
+      featuredJobs.map((job, idx) => ({
+        ...job,
+        gradientId: `job-gradient-${idx}`,
+        color: chartPalette[idx % chartPalette.length],
+      })),
+    [featuredJobs]
+  );
 
   return (
     <div className="flex flex-col flex-1 p-8 md:p-12 max-w-[1400px] mx-auto w-full">
@@ -121,34 +143,60 @@ export default function ManagerDashboard() {
                 : `The graph is shaped by ${jobPipeline.length} job${jobPipeline.length === 1 ? "" : "s"} that together have ${totalApplications} applications and ${totalInterviewsPending} voice interviews pending.`
               }
             </p>
-            <div className="flex flex-col gap-4">
+            <div className="h-[360px] w-full">
               {jobsLoading ? (
-                <div className="rounded-2xl border border-dashed border-neutral-800/50 p-6 text-center text-sm text-neutral-500">
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-neutral-800/50 pb-6 pt-8 text-center text-sm text-neutral-500">
                   Fetching data from /api/v1/jobs/hr...
                 </div>
-              ) : featuredJobs.length > 0 ? (
-                featuredJobs.map((job) => (
-                  <div key={job.title} className="bg-neutral-950/50 border border-neutral-800/60 rounded-2xl p-4">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <p className="text-sm font-semibold text-neutral-300">{job.title}</p>
-                      <span className="text-xs text-neutral-500 uppercase tracking-[0.3em]">applications</span>
-                    </div>
-                    <div className="mt-3 h-2 bg-neutral-900 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-400"
-                        style={{ width: `${(job.applicant_count / maxApplications) * 100}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 text-sm text-neutral-400">
-                      <span className="text-2xl text-neutral-100 font-light">{job.applicant_count}</span>
-                      <span className="uppercase tracking-[0.3em]">apps total</span>
-                      <span className="ml-auto text-emerald-300 font-semibold">{job.interviews_pending} voice interviews pending</span>
-                    </div>
-                  </div>
-                ))
+              ) : chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 24, right: 16, left: 4, bottom: 48 }}>
+                    <defs>
+                      {chartData.map((entry) => (
+                        <linearGradient id={entry.gradientId} key={entry.gradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={entry.color} stopOpacity={0.92} />
+                          <stop offset="100%" stopColor={entry.color} stopOpacity={0.35} />
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.35)" />
+                    <XAxis
+                      dataKey="title"
+                      tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 500 }}
+                      angle={-10}
+                      textAnchor="end"
+                      interval={0}
+                      height={60}
+                    />
+                    <YAxis
+                      tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 500 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={48}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }: any) =>
+                        active && payload && payload.length ? (
+                          <div className="rounded-2xl bg-neutral-950/80 p-3 text-sm text-white shadow-lg">
+                            <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">{label}</p>
+                            <p className="pt-1">Applications: {payload[0].value}</p>
+                            <p className="text-xs text-emerald-300">
+                              {chartData.find((point) => point.title === label)?.interviews_pending ?? 0} voice pending
+                            </p>
+                          </div>
+                        ) : null
+                      }
+                    />
+                    <Bar dataKey="applicant_count" barSize={48} radius={[12, 12, 0, 0]}>
+                      {chartData.map((entry) => (
+                        <Cell key={entry.gradientId} fill={`url(#${entry.gradientId})`} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="rounded-2xl border border-neutral-800/60 p-8 text-center text-sm text-neutral-400">
-                  No jobs found for your tenant yet. Create a new posting in HR to seed the explainability graph.
+                <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-neutral-800/60 px-6 text-sm text-neutral-400">
+                  No jobs found for your tenant yet. Create a posting to seed the explainability graph.
                 </div>
               )}
             </div>
