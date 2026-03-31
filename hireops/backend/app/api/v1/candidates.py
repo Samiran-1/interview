@@ -1,7 +1,9 @@
 """
 Candidates Profile API — HireOps Platform
 GET /api/v1/candidates/me — Retrieve current candidate profile.
+GET /api/v1/candidates/{candidate_id} — Retrieve any candidate profile by user ID (for HR/Managers).
 POST /api/v1/candidates/me/resume — Upload and parse resume PDF with comprehensive LLM extraction.
+PUT /api/v1/candidates/me — Update current candidate profile with manual data.
 """
 
 from typing import Optional, Annotated
@@ -198,6 +200,59 @@ async def get_candidate_profile(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
+        phone=candidate.phone if hasattr(candidate, 'phone') else None,
+        professional_summary=candidate.professional_summary if hasattr(candidate, 'professional_summary') else None,
+        technical_skills=candidate.technical_skills,
+        soft_skills=candidate.soft_skills,
+        experience_years=candidate.experience_years,
+        education=candidate.education,
+        overall_score=candidate.overall_score,
+        resume_text=candidate.resume_text,
+        github=candidate.github,
+        linkedin=candidate.linkedin
+    )
+
+
+@router.get("/candidates/{candidate_id}", response_model=CandidateProfileResponse)
+async def get_candidate_by_id(
+    candidate_id: int,
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieve a candidate's profile by their user ID.
+    
+    Accessible to HR and Manager users who need to view candidate details.
+    Returns 404 if candidate not found.
+    
+    Args:
+        candidate_id: The user_id of the candidate to retrieve.
+    """
+    # Query candidate record by user_id
+    result = await db.execute(select(Candidate).where(Candidate.user_id == candidate_id))
+    candidate = result.scalar_one_or_none()
+    
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found"
+        )
+    
+    # Get user info for the candidate
+    user_result = await db.execute(select(User).where(User.id == candidate_id))
+    user = user_result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate user not found"
+        )
+    
+    # Return combined user + candidate data
+    return CandidateProfileResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
         phone=candidate.phone if hasattr(candidate, 'phone') else None,
         professional_summary=candidate.professional_summary if hasattr(candidate, 'professional_summary') else None,
         technical_skills=candidate.technical_skills,

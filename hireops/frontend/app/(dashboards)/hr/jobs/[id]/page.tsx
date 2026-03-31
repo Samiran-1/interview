@@ -16,6 +16,7 @@ import Link from "next/link";
 import { KanbanColumn } from "@/components/hr/KanbanColumn";
 import { CandidateMiniCard, HRApplication } from "@/components/hr/CandidateMiniCard";
 import { JobDetailsModal } from "@/components/shared/JobDetailsModal";
+import { CandidateDetailsModal } from "@/components/shared/CandidateDetailsModal";
 import { fetchApi } from "@/lib/api";
 
 // Pipeline columns mirroring the ApplicationStatus enum
@@ -61,6 +62,9 @@ export default function JobPipelineDashboard({
   const [jobTitle, setJobTitle] = useState("Pipeline Dashboard");
   const [jobData, setJobData] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<HRApplication | null>(null);
+  const [fullCandidateDetails, setFullCandidateDetails] = useState<any>(null);
+  const [isLoadingCandidate, setIsLoadingCandidate] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -89,9 +93,33 @@ export default function JobPipelineDashboard({
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    // Only poll when manually requested (via refresh button), remove automatic 15s polling
+    // to prevent unnecessary reloads when navigating back to this page
+  }, [jobId, fetchData]);
+
+  // Fetch full candidate details when a candidate is selected
+  useEffect(() => {
+    if (!selectedCandidate) {
+      setFullCandidateDetails(null);
+      return;
+    }
+
+    const fetchCandidateDetails = async () => {
+      setIsLoadingCandidate(true);
+      try {
+        const candidateData = await fetchApi<any>(`/api/v1/candidates/${selectedCandidate.candidate_id}`);
+        setFullCandidateDetails(candidateData);
+      } catch (err) {
+        console.error("Failed to fetch candidate details:", err);
+        // Fallback to the basic candidate info from the application
+        setFullCandidateDetails(selectedCandidate.candidate);
+      } finally {
+        setIsLoadingCandidate(false);
+      }
+    };
+
+    fetchCandidateDetails();
+  }, [selectedCandidate]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -222,8 +250,8 @@ export default function JobPipelineDashboard({
               onClick={handleCloseJob}
               disabled={closingJob || !jobData?.is_active}
               className={`flex items-center gap-2 px-5 py-2.5 border rounded-xl text-xs font-bold tracking-wider transition-all ${!jobData?.is_active
-                  ? "bg-neutral-900/50 border-neutral-700/20 text-neutral-500 cursor-not-allowed"
-                  : "bg-red-900/20 hover:bg-red-900/30 border-red-700/40 text-red-300"
+                ? "bg-neutral-900/50 border-neutral-700/20 text-neutral-500 cursor-not-allowed"
+                : "bg-red-900/20 hover:bg-red-900/30 border-red-700/40 text-red-300"
                 }`}
             >
               {closingJob ? (
@@ -278,6 +306,7 @@ export default function JobPipelineDashboard({
                         key={app.id}
                         app={app}
                         columnKey={col.key}
+                        onViewDetails={setSelectedCandidate}
                       />
                     ))}
                   </KanbanColumn>
@@ -299,6 +328,7 @@ export default function JobPipelineDashboard({
                     key={app.id}
                     app={app}
                     columnKey="REJECTED"
+                    onViewDetails={setSelectedCandidate}
                   />
                 ))}
               </KanbanColumn>
@@ -312,6 +342,12 @@ export default function JobPipelineDashboard({
         onClose={() => setIsModalOpen(false)}
         job={jobData}
         viewerRole="HR"
+      />
+
+      <CandidateDetailsModal
+        isOpen={!!selectedCandidate}
+        onClose={() => setSelectedCandidate(null)}
+        candidate={fullCandidateDetails || selectedCandidate?.candidate}
       />
     </div>
   );

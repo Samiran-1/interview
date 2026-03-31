@@ -1530,25 +1530,38 @@ export default function CandidateProfileForm({
                 </AnimatePresence>
 
                 {/* ── Submit ────────────────────────────────────────────── */}
-                <motion.button
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
-                    onClick={handleSubmit}
-                    disabled={submitting || skills.length === 0}
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm tracking-wider rounded-xl border border-indigo-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
-                >
-                    {submitting ? (
-                        <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Saving Profile…
-                        </>
-                    ) : (
-                        <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            Save Profile
-                        </>
+                <div className="flex gap-3">
+                    {onComplete && (
+                        <motion.button
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.99 }}
+                            onClick={onComplete}
+                            disabled={submitting}
+                            className="flex-1 py-3.5 bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300 font-bold text-sm tracking-wider rounded-xl border border-neutral-700/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            Cancel
+                        </motion.button>
                     )}
-                </motion.button>
+                    <motion.button
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
+                        onClick={handleSubmit}
+                        disabled={submitting || skills.length === 0}
+                        className={`${onComplete ? "flex-1" : "w-full"} py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm tracking-wider rounded-xl border border-indigo-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.15)]`}
+                    >
+                        {submitting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Saving Profile…
+                            </>
+                        ) : (
+                            <>
+                                <CheckCircle2 className="w-4 h-4" />
+                                {onComplete ? "Done" : "Save Profile"}
+                            </>
+                        )}
+                    </motion.button>
+                </div>
             </div>
         </motion.div>
     );

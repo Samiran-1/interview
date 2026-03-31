@@ -38,6 +38,7 @@ export interface HRApplication {
 interface CandidateMiniCardProps {
   app: HRApplication;
   columnKey: string;
+  onViewDetails?: (app: HRApplication) => void;
 }
 
 interface VoiceEvaluation {
@@ -49,7 +50,7 @@ interface VoiceEvaluation {
   summary?: string;
 }
 
-export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
+export function CandidateMiniCard({ app, columnKey, onViewDetails }: CandidateMiniCardProps) {
   const router = useRouter();
   const [scheduling, setScheduling] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -57,6 +58,12 @@ export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isShortlisting, setIsShortlisting] = useState(false);
   const [isRejectingAfterEval, setIsRejectingAfterEval] = useState(false);
+
+  const handleCardClick = () => {
+    if (onViewDetails) {
+      onViewDetails(app);
+    }
+  };
 
   const candidateName = app.candidate?.full_name || "Unknown Candidate";
   const candidateEmail = app.candidate?.email || "No email";
@@ -191,6 +198,7 @@ export function CandidateMiniCard({ app, columnKey }: CandidateMiniCardProps) {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       whileHover={{ y: -2, transition: { duration: 0.2 } }}
+      onClick={handleCardClick}
       className={`bg-neutral-800/30 p-4 rounded-2xl cursor-pointer group transition-all duration-200 ${columnKey === "SHORTLISTED"
         ? "border-emerald-500/25 hover:border-emerald-500/50 shadow-[0_0_15px_rgba(52,211,153,0.05)]"
         : columnKey === "REJECTED"

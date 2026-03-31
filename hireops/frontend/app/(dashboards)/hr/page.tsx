@@ -70,9 +70,8 @@ export default function HRDashboard() {
 
   useEffect(() => {
     fetchJobs();
-    // Refresh periodically to update applicant counts
-    const interval = setInterval(fetchJobs, 20000);
-    return () => clearInterval(interval);
+    // Load jobs once on mount - no automatic polling
+    // Use manual refresh button to get latest data
   }, [fetchJobs]);
 
   const handleRefresh = () => {

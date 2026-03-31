@@ -86,13 +86,23 @@ function CandidateDashboardContent() {
   const { data: jobsData, isLoading: jobsLoading, error: jobsError } = useSWR<Job[]>(
     "/api/v1/jobs",
     swrFetcher,
-    { revalidateOnFocus: false, dedupingInterval: 10000 }
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000,  // 60s dedup instead of 10s
+      focusThrottleInterval: 600000  // 10min focus throttle instead of auto-focus
+    }
   );
 
   const { data: appsData, isLoading: appsLoading } = useSWR<Array<{ id: number; job_id: number; candidate_id: number; status: string; ai_match_score?: number; created_at: string; updated_at: string }>>(
     "/api/v1/applications",
     swrFetcher,
-    { revalidateOnFocus: false, dedupingInterval: 10000 }
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000,  // 60s dedup instead of 10s
+      focusThrottleInterval: 600000  // 10min focus throttle instead of auto-focus
+    }
   );
 
   const jobs = jobsData ?? [];

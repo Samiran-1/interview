@@ -49,13 +49,16 @@ export function Navbar() {
           setPendingAssessments(pending);
         }
       } catch (err) {
-        console.error("Failed to fetch pending assessments:", err);
+        // Silent fail - just don't update pending count
+        // console.error("Failed to fetch pending assessments:", err);
       }
     }
 
-    checkPendingAssessments();
+    // Add small delay to ensure auth state is fully loaded
+    const timer = setTimeout(checkPendingAssessments, 500);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [mounted, isAuthenticated, user?.role]);
 
