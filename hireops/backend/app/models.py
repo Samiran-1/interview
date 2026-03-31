@@ -129,6 +129,7 @@ class Application(Base):
     
     # Interview feedback and summary
     ai_feedback: Mapped[Optional[str]] = mapped_column(Text)  # JSON or text feedback from AI
+    voice_transcript: Mapped[Optional[str]] = mapped_column(Text)
     custom_mcq_data: Mapped[Optional[dict]] = mapped_column(JSON)
     
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

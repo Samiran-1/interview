@@ -1,27 +1,39 @@
-new CI Pipeline
+name: HireOps Build & Test
 on: [push, pull_request]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Install native build tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libffi-dev ffmpeg
+          sudo rm -rf /var/lib/apt/lists/*
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install backend dependencies
+        working-directory: hireops/backend
         run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          python -m pip install --upgrade pip setuptools wheel
+          pip install --no-cache-dir fastapi 'uvicorn[standard]' sqlalchemy asyncpg alembic
+          pip install --no-cache-dir python-jose[cryptography] 'passlib[bcrypt,argon2]' 'bcrypt==3.2.2' python-multipart 'pydantic[email]'
+          pip install --no-cache-dir celery redis pdfplumber httpx opencv-python-headless numpy
+          pip install --no-cache-dir openai 'livekit-api<1.0' 'livekit-agents<1.0' 'livekit-plugins-openai<1.0' 'livekit-plugins-silero<1.0'
+          pip install --no-cache-dir faster-whisper edge-tts
+          pip install --no-cache-dir pytest pytest-cov
 
       - name: Run backend tests
+        working-directory: hireops/backend
         run: |
-          cd backend
-          pytest --cov=app tests/
+          pytest --cov=app --cov-report=xml:coverage.xml
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -29,16 +41,19 @@ jobs:
           node-version: '18'
 
       - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm install
+        working-directory: hireops/frontend
+        run: npm install
 
-      - name: Run frontend tests
-        run: |
-          cd frontend
-          npm test -- --watchAll=false --coverage
+      - name: Lint frontend
+        working-directory: hireops/frontend
+        run: npm run lint
 
-      - name: Upload coverage reports
+      - name: Build frontend
+        working-directory: hireops/frontend
+        run: npm run build
+
+      - name: Upload backend coverage report
         uses: actions/upload-artifact@v3
         with:
-          name: coverage-reports
+          name: backend-coverage
+          path: hireops/backend/coverage.xml

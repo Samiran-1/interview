@@ -64,14 +64,16 @@ const ActiveRoomControls = ({
     const handleEndInterview = useCallback(async () => {
         setIsEvaluating(true);
         try {
+            console.log("Triggering interview evaluation for application ID:", applicationId);
             const safeId = applicationId?.trim();
+            console.log("Safe application ID for evaluation:", safeId);
             if (!safeId) {
                 console.warn("Cannot evaluate interview: missing application ID.");
             } else {
                 await fetch(`${apiBaseUrl}/api/v1/interview/${safeId}/evaluate`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ transcript: "Transcript captured by the AI worker on disconnect." }),
+                    body: JSON.stringify({ transcript: "" }),
                 });
             }
         } catch (error) {

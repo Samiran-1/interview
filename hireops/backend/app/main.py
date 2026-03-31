@@ -62,6 +62,7 @@ async def ensure_application_assessment_columns(conn):
         "coding_score": "FLOAT",
         "voice_score": "FLOAT",
         "ai_feedback": "TEXT",
+        "voice_transcript": "TEXT",
     }
 
     for column_name, sql_type in needed_columns.items():

@@ -200,6 +200,8 @@ async def websocket_endpoint(
             candidate_user.id,
         )
 
+        transcript_buffer: list[str] = []
+
         while True:
             audio_bytes = await websocket.receive_bytes()
             logger.debug(
@@ -239,6 +241,17 @@ async def websocket_endpoint(
                     continue
 
                 messages.append({"role": "user", "content": user_text})
+                transcript_buffer.append(user_text)
+                application.voice_transcript = "\n".join(transcript_buffer)
+                try:
+                    await db.commit()
+                except Exception as exc:
+                    await db.rollback()
+                    logger.exception(
+                        "Failed to persist voice transcript for application %s: %s",
+                        application_id,
+                        exc,
+                    )
 
                 chat_response = await client.chat.completions.create(
                     model="openai/gpt-4o-mini",
@@ -423,8 +436,15 @@ async def evaluate_interview(
     job_description = (application.job.description or application.job.title) if application.job else "General technical role"
     job_description = (job_description or "General technical role").strip()
 
+    transcript_text = (payload.transcript or "").strip()
+    if not transcript_text:
+        transcript_text = (application.voice_transcript or "").strip()
+    if not transcript_text:
+        transcript_text = "Transcript not yet captured. Proceeding with empty transcript."
+        logger.warning("Evaluation triggered without transcript for application %s", application_id)
+
     try:
-        scorecard = await generate_interview_scorecard(payload.transcript, job_description)
+        scorecard = await generate_interview_scorecard(transcript_text, job_description)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
