@@ -116,6 +116,8 @@ export default function CandidateProfileForm({
         id: number;
         email: string;
         full_name: string;
+        phone?: string | null;
+        professional_summary?: string | null;
         technical_skills?: string[] | null;
         soft_skills?: string[] | null;
         experience_years?: number | null;
@@ -142,6 +144,12 @@ export default function CandidateProfileForm({
             }
             if (data.email) {
                 setEmail(data.email);
+            }
+            if (data.phone) {
+                setPhone(data.phone);
+            }
+            if (data.professional_summary) {
+                setProfessionalSummary(data.professional_summary);
             }
             if (data.github) {
                 setGithubUrl(data.github);

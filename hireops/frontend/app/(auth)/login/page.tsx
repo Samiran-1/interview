@@ -49,6 +49,7 @@ export default function LoginPage() {
         role: (decodedPayload.role).toLowerCase() as "candidate" | "hr" | "manager",
         company_id: decodedPayload.company_id,
         email: decodedPayload.email,
+        full_name: decodedPayload.full_name,
       });
 
       // 4. Redirect to the respective role dashboard

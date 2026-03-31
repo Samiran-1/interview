@@ -74,6 +74,8 @@ class Candidate(Base):
     
     # Resume parsing results
     resume_text: Mapped[Optional[str]] = mapped_column(Text)
+    phone: Mapped[Optional[str]] = mapped_column(String(20))
+    professional_summary: Mapped[Optional[str]] = mapped_column(Text)
     technical_skills: Mapped[Optional[List[str]]] = mapped_column(JSON)
     soft_skills: Mapped[Optional[List[str]]] = mapped_column(JSON)
     experience_years: Mapped[Optional[float]] = mapped_column()

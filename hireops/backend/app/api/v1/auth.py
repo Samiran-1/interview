@@ -115,6 +115,7 @@ async def register_candidate(
     jwt_payload = {
         "sub": str(new_user.id),
         "email": new_user.email,
+        "full_name": new_user.full_name,
         "role": new_user.role,
         "company_id": new_user.company_id
     }
@@ -159,6 +160,7 @@ async def login_for_access_token(
     jwt_payload = {
         "sub": str(user.id),
         "email": user.email,
+        "full_name": user.full_name,
         "role": user.role,
         "company_id": user.company_id
     }

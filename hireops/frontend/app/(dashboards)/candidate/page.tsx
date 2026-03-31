@@ -242,6 +242,7 @@ function CandidateDashboardContent() {
               job={job}
               application={applications[job.id]}
               isApplying={!!applyingFor[job.id]}
+              applyError={applyErrors[job.id] || null}
               onApply={handleApply}
               onNavigate={handleNavigate}
               onViewDetails={setSelectedJob}

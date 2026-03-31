@@ -109,6 +109,8 @@ class CandidateProfileResponse(BaseModel):
     id: int
     email: str
     full_name: str
+    phone: Optional[str] = None
+    professional_summary: Optional[str] = None
     technical_skills: Optional[list[str]] = None
     soft_skills: Optional[list[str]] = None
     experience_years: Optional[float] = None
@@ -124,10 +126,17 @@ class CandidateProfileResponse(BaseModel):
 
 class CandidateProfileUpdate(BaseModel):
     """
-    Schema for updating candidate profile with manual data (skills, URLs).
+    Schema for updating candidate profile with manual data (skills, URLs, contact info).
     """
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    professional_summary: Optional[str] = None
     technical_skills: Optional[list[str]] = None
     soft_skills: Optional[list[str]] = None
+    years_of_experience: Optional[float] = None
+    experience: Optional[list] = None
+    education: Optional[list] = None
+    projects: Optional[list] = None
 
 
 class CandidateProfileOut(BaseModel):
@@ -172,6 +181,8 @@ async def get_candidate_profile(
             id=current_user.id,
             email=current_user.email,
             full_name=current_user.full_name,
+            phone=None,
+            professional_summary=None,
             technical_skills=None,
             soft_skills=None,
             experience_years=None,
@@ -187,6 +198,8 @@ async def get_candidate_profile(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
+        phone=candidate.phone if hasattr(candidate, 'phone') else None,
+        professional_summary=candidate.professional_summary if hasattr(candidate, 'professional_summary') else None,
         technical_skills=candidate.technical_skills,
         soft_skills=candidate.soft_skills,
         experience_years=candidate.experience_years,
@@ -274,6 +287,8 @@ async def upload_and_parse_resume(
     
     # Update candidate record with extracted data
     candidate.resume_text = resume_text  # Store only the text string, not the dict
+    candidate.phone = parsed_data.phone
+    candidate.professional_summary = parsed_data.professional_summary
     candidate.technical_skills = parsed_data.technical_skills
     candidate.soft_skills = parsed_data.soft_skills
     candidate.experience_years = parsed_data.total_years_experience
@@ -350,10 +365,18 @@ async def update_candidate_profile(
         db.add(candidate)
     
     # Update with provided data (only non-None fields)
+    if payload.email is not None:
+        current_user.email = payload.email
+    if payload.phone is not None:
+        candidate.phone = payload.phone
+    if payload.professional_summary is not None:
+        candidate.professional_summary = payload.professional_summary
     if payload.technical_skills is not None:
         candidate.technical_skills = payload.technical_skills
     if payload.soft_skills is not None:
         candidate.soft_skills = payload.soft_skills
+    if payload.years_of_experience is not None:
+        candidate.experience_years = payload.years_of_experience
     
     await db.commit()
     
@@ -362,6 +385,8 @@ async def update_candidate_profile(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
+        phone=candidate.phone if hasattr(candidate, 'phone') else None,
+        professional_summary=candidate.professional_summary if hasattr(candidate, 'professional_summary') else None,
         technical_skills=candidate.technical_skills,
         soft_skills=candidate.soft_skills,
         experience_years=candidate.experience_years,

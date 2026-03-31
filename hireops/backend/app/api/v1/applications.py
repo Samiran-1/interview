@@ -263,10 +263,23 @@ async def create_application(
     
     # Enforce 75% threshold (The Bouncer)
     if score < 75:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Match score: {score}%. Minimum required is 75%. AI Feedback: {reasoning}"
+        # Instead of rejecting, create a special "NOT_MATCHING" application
+        # so the user can see why they don't match
+        application = Application(
+            candidate_id=current_user.id,
+            job_id=job.id,
+            status=ApplicationStatus.APPLIED,
+            match_score=score,
+            ai_feedback=f"Match score: {score}%. You don't meet the minimum requirements (75%). {reasoning}"
         )
+        
+        db.add(application)
+        await db.commit()
+        await db.refresh(application)
+        
+        logger.info(f"[Applications] Low match score {score}% for candidate {current_user.id} on job {job.id}")
+        
+        return ApplicationOut.model_validate(application)
     
     # Create Application record
     application = Application(

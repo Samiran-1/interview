@@ -31,13 +31,16 @@ export interface ApplicationResult {
   job_id: number;
   candidate_id: number;
   status: "APPLIED" | "AI_SCREENING" | "TEST_PENDING" | "REJECTED" | "VOICE_PENDING" | "SHORTLISTED" | "SCHEDULED";
-  ai_match_score: number;
+  ai_match_score?: number;
+  match_score?: number;
+  ai_feedback?: string;
 }
 
 interface JobCardProps {
   job: Job;
   application?: ApplicationResult;
   isApplying: boolean;
+  applyError?: string | null;
   onApply: (jobId: number) => void;
   onNavigate: (path: string) => void;
   onViewDetails: (job: Job) => void;
@@ -48,6 +51,7 @@ export function JobCard({
   job,
   application,
   isApplying,
+  applyError,
   onApply,
   onNavigate,
   onViewDetails,
@@ -61,6 +65,25 @@ export function JobCard({
         <div className="flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 className="w-4 h-4 animate-spin" />
           AI Screening…
+        </div>
+      );
+    }
+
+    // If there's an apply error, show it as "Not a Good Match"
+    if (applyError) {
+      const isLowMatchScore = applyError.includes("Match score") || applyError.includes("don't meet");
+      if (isLowMatchScore) {
+        return (
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 rounded-xl border border-amber-500/30">
+            <span className="w-2 h-2 bg-amber-400 rounded-full flex-shrink-0"></span>
+            <span>Not a Good Match</span>
+          </div>
+        );
+      }
+      return (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-500/15 text-red-300 rounded-xl border border-red-500/30">
+          <span className="w-2 h-2 bg-red-400 rounded-full flex-shrink-0"></span>
+          <span>Error</span>
         </div>
       );
     }
@@ -203,8 +226,8 @@ export function JobCard({
           <div className="bg-neutral-800/60 p-2 rounded-xl border border-neutral-700/40">
             <Briefcase className="w-5 h-5 text-neutral-400" />
           </div>
-          {application && (
-            <ScoreBadge score={application.ai_match_score} />
+          {(application || applyError) && (
+            <ScoreBadge score={application?.ai_match_score || application?.match_score || 0} />
           )}
         </div>
 

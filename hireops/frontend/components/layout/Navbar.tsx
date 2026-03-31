@@ -15,10 +15,23 @@ export function Navbar() {
   const { user, isAuthenticated, logout } = useAuthStore();
   const [mounted, setMounted] = useState(false);
   const [pendingAssessments, setPendingAssessments] = useState(0);
+  const [displayName, setDisplayName] = useState<string>("");
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Update display name whenever user changes
+  useEffect(() => {
+    if (user?.full_name) {
+      setDisplayName(user.full_name);
+    } else if (user?.email) {
+      // Fallback to email if full_name is not available
+      setDisplayName(user.email.split("@")[0]);
+    } else {
+      setDisplayName("Account");
+    }
+  }, [user]);
 
   // Fetch pending assessments for candidates
   useEffect(() => {
@@ -126,7 +139,7 @@ export function Navbar() {
             <div className="flex items-center gap-4 pl-4 border-l border-neutral-800">
               <div className="hidden sm:flex flex-col items-end">
                 <span className="text-xs font-bold text-neutral-300">
-                  {user.id ? `User #${user.id}` : "Account"}
+                  {displayName}
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-indigo-400 font-bold">
                   {role}
@@ -158,8 +171,8 @@ function NavLink({ href, children, isActive = false }: { href: string; children:
       <Link
         href={href}
         className={`text-sm font-medium transition-colors py-2 block ${isActive
-            ? "text-indigo-300"
-            : "text-neutral-400 group-hover:text-neutral-200"
+          ? "text-indigo-300"
+          : "text-neutral-400 group-hover:text-neutral-200"
           }`}
       >
         {children}

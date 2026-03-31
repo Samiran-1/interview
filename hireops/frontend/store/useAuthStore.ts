@@ -6,6 +6,7 @@ interface User {
   role: "candidate" | "hr" | "manager";
   company_id: number | null;
   email?: string;
+  full_name?: string;
 }
 
 interface AuthState {

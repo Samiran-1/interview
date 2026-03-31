@@ -321,7 +321,7 @@ async def extract_comprehensive_resume_data(resume_text: str):
     """
     Extract comprehensive, deeply nested JSON profile from resume text using LLM.
     
-    Uses Ollama to intelligently parse structured data including:
+    Uses OpenRouter API to intelligently parse structured data including:
     - Contact information (name, email, phone, GitHub, LinkedIn)
     - Work experience with detailed responsibilities
     - Education history
@@ -340,69 +340,47 @@ async def extract_comprehensive_resume_data(resume_text: str):
         Exception if LLM extraction fails
     """
     import json
-    from app.services.ollama_client import call_ollama
+    from app.services.ollama_client import call_openrouter
     
     # Build the extraction prompt with strict schema
-    extraction_prompt = f"""You are an expert technical recruiter. Your task is to extract structured information from the provided resume text.
+    extraction_prompt = f"""You are an expert technical recruiter. Extract structured information from this resume and return ONLY valid JSON.
 
-You MUST return a valid JSON object that strictly adheres to this exact schema:
+SCHEMA (required):
 {{
-    "full_name": <string or null>,
-    "email": <string or null>,
-    "phone": <string or null>,
-    "github_url": <string or null>,
-    "linkedin_url": <string or null>,
-    "technical_skills": [<list of technical skill strings>],
-    "soft_skills": [<list of soft skill strings>],
-    "total_years_experience": <integer or null>,
-    "professional_summary": <string or null>,
-    "experience": [
-        {{
-            "job_title": <string or null>,
-            "company": <string or null>,
-            "start_date": <string YYYY-MM or null>,
-            "end_date": <string YYYY-MM or null>,
-            "responsibilities": [<list of responsibility strings>]
-        }}
-    ],
-    "education": [
-        {{
-            "degree": <string or null>,
-            "institution": <string or null>,
-            "graduation_year": <string YYYY or null>
-        }}
-    ],
-    "projects": [
-        {{
-            "name": <string or null>,
-            "description": <string or null>,
-            "tech_stack": [<list of technology strings>]
-        }}
-    ]
+    "full_name": string or null,
+    "email": string or null,
+    "phone": string or null,
+    "github_url": string or null,
+    "linkedin_url": string or null,
+    "technical_skills": [list of strings],
+    "soft_skills": [list of strings],
+    "total_years_experience": number or null,
+    "professional_summary": string or null,
+    "experience": [{{"job_title": string, "company": string, "start_date": "YYYY-MM", "end_date": "YYYY-MM", "responsibilities": [list of strings]}}],
+    "education": [{{"degree": string, "institution": string, "graduation_year": "YYYY"}}],
+    "projects": [{{"name": string, "description": string, "tech_stack": [list of strings]}}]
 }}
 
-CRITICAL RULES:
-1. Do NOT make up information. If a field is not present in the resume, return null or an empty list.
-2. Extract ALL work experience entries chronologically (newest first).
-3. For each experience, extract ALL responsibilities as bullet points.
-4. Extract ALL projects mentioned in the resume.
-5. Extract ALL technical skills mentioned, removing duplicates.
-6. Extract ALL soft skills mentioned, removing duplicates.
-7. Return ONLY valid JSON with NO additional text, NO markdown formatting, NO explanation.
+RULES:
+1. Extract ONLY information present in the resume - DO NOT make up data
+2. Lists should be comprehensive 
+3. Dates in YYYY-MM format or null
+4. Return ONLY JSON, no markdown or explanation
+5. For absent fields, use null or empty arrays as appropriate
 
-Resume Text:
+RESUME:
 {resume_text}
 
-Return ONLY the JSON object:"""
+Return ONLY JSON:"""
 
     try:
-        logger.info("[Resume Extraction] Calling Ollama for comprehensive resume extraction...")
+        logger.info("[Resume Extraction] Calling OpenRouter for comprehensive resume extraction...")
         
-        # Call Ollama for intelligent extraction
-        response_text = await call_ollama(extraction_prompt)
+        # Call OpenRouter for intelligent extraction - use json_object format
+        response_text = await call_openrouter(extraction_prompt, response_format="json_object")
         
         if not response_text:
-            logger.error("[Resume Extraction] Ollama returned empty response")
+            logger.error("[Resume Extraction] OpenRouter returned empty response")
             raise ValueError("LLM returned empty response")
         
         logger.debug(f"[Resume Extraction] Raw response: {response_text[:200]}...")

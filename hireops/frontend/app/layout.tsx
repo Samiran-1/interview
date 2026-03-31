@@ -17,7 +17,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" style={{ colorScheme: "dark", userSelect: "auto" }}>
+    <html lang="en" className="dark" style={{ colorScheme: "dark", userSelect: "auto" }} suppressHydrationWarning>
       <body
         className={`${inter.variable} font-sans bg-neutral-950 text-neutral-50 antialiased min-h-screen selection:bg-indigo-500/30 selection:text-indigo-200`}
         style={{ userSelect: "auto" }}

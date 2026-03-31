@@ -1,5 +1,5 @@
-"""
-Job Matcher — AI-powered job-candidate matching using Ollama LLM.
+
+"""Job Matcher - AI-powered job-candidate matching using OpenRouter AI model.
 
 Evaluates candidate fit for positions using semantic evaluation
 instead of deterministic point-based scoring.
@@ -10,14 +10,14 @@ import re
 import logging
 from typing import Dict, Any
 
-from app.services.ollama_client import call_ollama
+from app.services.ollama_client import call_openrouter
 
 logger = logging.getLogger(__name__)
 
 
 def _get_system_prompt() -> str:
     """
-    Returns the system prompt for Ollama to act as an Expert Technical Recruiter.
+    Returns the system prompt for OpenRouter to act as an Expert Technical Recruiter.
     
     Returns:
         System prompt string with instructions and output format.
@@ -68,7 +68,7 @@ Evaluate this candidate's fit for this job."""
 
 def _parse_match_response(response_text: str) -> Dict[str, Any]:
     """
-    Extract and validate the match score and reasoning from Ollama response.
+    Extract and validate the match score and reasoning from OpenRouter response.
     
     Handles Markdown code blocks from LLM output, then attempts JSON parsing.
     Falls back to regex extraction if JSON parsing fails.
@@ -132,9 +132,9 @@ def _parse_match_response(response_text: str) -> Dict[str, Any]:
 
 async def calculate_job_match(candidate_data: Dict[str, Any], job_description: str) -> Dict[str, Any]:
     """
-    Calculate job-candidate match score and reasoning using AI semantic evaluation via Ollama.
+    Calculate job-candidate match score and reasoning using AI semantic evaluation via OpenRouter.
     
-    Uses a local Ollama instance running qwen3.5:2b model for intelligent,
+    Uses OpenRouter API with GPT-4o-mini model for intelligent,
     context-aware job matching instead of deterministic point-based scoring.
     
     Flow:
@@ -161,15 +161,15 @@ async def calculate_job_match(candidate_data: Dict[str, Any], job_description: s
         candidate_context = _build_candidate_context(candidate_data, job_description)
         full_prompt = system_prompt + "\n\n" + candidate_context
         
-        logger.info("[Job Match] Calling Ollama API...")
+        logger.info("[Job Match] Calling OpenRouter API...")
         
-        # Call Ollama API
-        response_text = await call_ollama(full_prompt)
+        # Call OpenRouter API for job matching
+        response_text = await call_openrouter(full_prompt, response_format="json")
         
-        logger.info(f"[Job Match] Ollama returned: {response_text[:150] if response_text else 'None'}...")
+        logger.info(f"[Job Match] OpenRouter returned: {response_text[:150] if response_text else 'None'}...")
         
         if not response_text:
-            logger.error("[Job Match] Ollama returned empty/None response")
+            logger.error("[Job Match] OpenRouter returned empty/None response")
             return {
                 "score": 0,
                 "reasoning": "AI reasoning unavailable"

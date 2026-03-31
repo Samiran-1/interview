@@ -79,6 +79,7 @@ export default function SignupPage() {
       role?: string;
       company_id?: number | null;
       email?: string;
+      full_name?: string;
     };
 
     useAuthStore.getState().setAuth({
@@ -86,6 +87,7 @@ export default function SignupPage() {
       role: ((decodedPayload.role ?? "candidate").toLowerCase() as "candidate" | "hr" | "manager"),
       company_id: decodedPayload.company_id ?? null,
       email: decodedPayload.email,
+      full_name: decodedPayload.full_name,
     });
 
     if (payloadRole === "HR") {
@@ -130,8 +132,8 @@ export default function SignupPage() {
             type="button"
             onClick={() => setRole(option)}
             className={`flex-1 py-2 text-sm text-center transition-all relative ${role === option
-                ? "text-black font-semibold"
-                : "text-neutral-400 hover:text-neutral-200"
+              ? "text-black font-semibold"
+              : "text-neutral-400 hover:text-neutral-200"
               }`}
           >
             {option === "HR" ? "HR" : option.charAt(0) + option.slice(1).toLowerCase()}
