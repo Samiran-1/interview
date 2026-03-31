@@ -3,8 +3,9 @@ Assessments API — HireOps Platform
 Handles assessment questions (GET) and submission with proctoring telemetry (POST).
 """
 
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 import logging
+import string
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -19,6 +20,43 @@ from app.services.assessment_generator import generate_custom_mcq
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _normalize_choice(value: str | int | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = " ".join(str(value).split()).lower()
+    return normalized or None
+
+
+def _resolve_correct_answer(question: dict[str, Any]) -> str | None:
+    raw_correct = question.get("correct_answer")
+    options = question.get("options") or []
+
+    if isinstance(raw_correct, int) and 0 <= raw_correct < len(options):
+        return options[raw_correct]
+
+    normalized_raw = _normalize_choice(raw_correct)
+    if normalized_raw:
+        for option in options:
+            if _normalize_choice(option) == normalized_raw:
+                return option
+
+        upper = normalized_raw.upper()
+        if len(upper) == 1 and upper in string.ascii_uppercase:
+            idx = ord(upper) - 65
+            if 0 <= idx < len(options):
+                return options[idx]
+
+        if normalized_raw.isdigit():
+            numeric = int(normalized_raw)
+            if 0 <= numeric < len(options):
+                return options[numeric]
+            if 1 <= numeric <= len(options):
+                return options[numeric - 1]
+
+    return raw_correct if isinstance(raw_correct, str) else None
 
 
 async def backfill_pending_mcq_task(application_ids: list[int]) -> None:
@@ -329,8 +367,11 @@ async def submit_custom_mcq(
 
     for idx, question in enumerate(questions):
         submitted_answer = payload.answers.get(idx)
-        correct_answer = question.get("correct_answer")
-        if submitted_answer and correct_answer and submitted_answer == correct_answer:
+        normalized_answer = _normalize_choice(submitted_answer)
+        resolved_correct_answer = _resolve_correct_answer(question)
+        normalized_correct_answer = _normalize_choice(resolved_correct_answer)
+
+        if normalized_answer and normalized_correct_answer and normalized_answer == normalized_correct_answer:
             correct += 1
 
     score = round((correct / mcq_total) * 100) if mcq_total else 0

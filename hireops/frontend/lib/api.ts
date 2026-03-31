@@ -65,7 +65,16 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
         const errorData = await response.json();
-        errorMessage = errorData.detail || errorMessage;
+        const detail = errorData.detail ?? errorData;
+        if (Array.isArray(detail)) {
+          errorMessage = detail
+            .map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)))
+            .join("; ");
+        } else if (typeof detail === "object" && detail !== null) {
+          errorMessage = JSON.stringify(detail);
+        } else {
+          errorMessage = String(detail);
+        }
       } else {
         // Handle plain text or HTML error responses
         const errorText = await response.text();

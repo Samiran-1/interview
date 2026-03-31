@@ -11,7 +11,7 @@ _evaluator_client = (
     else None
 )
 
-SYSTEM_PROMPT = """
+INTERVIEW_SYSTEM_PROMPT = """
 You are an elite Senior Technical Hiring Manager. Your task is to evaluate a candidate based on a raw voice interview transcript between them and an AI Recruiter.
 
 CRITICAL INSTRUCTIONS:
@@ -31,22 +31,40 @@ JSON SCHEMA:
 }
 """
 
+CODING_SYSTEM_PROMPT = """
+You are an elite, fair-minded Senior Engineering Interviewer evaluating a candidate's code.
+Your goal is to assess if the candidate's logic solves the core algorithmic problem.
 
-async def generate_interview_scorecard(transcript: str, job_description: str) -> Dict[str, Any]:
+CRITICAL GRADING RULES:
+1. Core Logic First: If the algorithmic approach is correct and solves the primary problem, it is a "Pass". Do NOT penalize the candidate for missing input validation unless it is explicitly required.
+2. Ignore Formatting: Focus purely on algorithmic correctness; do not penalize for missing type hints, extra print statements, or minor syntax quirks.
+3. Explicit Grading Scale:
+   - "Pass": Logic is fundamentally correct for standard inputs. (Score: 85-100)
+   - "Partial": Approach is promising but contains a minor bug, misses an obvious edge case, or is inefficient when an obvious improvement exists. (Score: 50-84)
+   - "Fail": Logic is broken, infinite looping, or fundamentally misunderstands the problem. (Score: 0-49)
+4. Output STRICTLY in valid JSON format. Do not wrap the response in markdown blocks like ```json.
+
+JSON SCHEMA:
+{
+  "execution_status": "Pass" | "Partial" | "Fail",
+  "overall_score": integer (0-100),
+  "time_complexity": "string (e.g., O(N))",
+  "space_complexity": "string (e.g., O(1))",
+  "constructive_feedback": "2-3 sentences highlighting what works, and suggesting any optimizations.",
+  "missed_edge_cases": ["List ONLY realistic algorithmic edge cases", "Leave empty if the code is solid"],
+  "hire_recommendation": "Strong Hire" | "Hire" | "No Hire"
+}
+"""
+
+
+async def _call_openrouter(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
     if not _evaluator_client:
         raise RuntimeError("OpenRouter credentials are not configured for the evaluator.")
-
-    user_prompt = (
-        "Use the job description and the transcript below to evaluate the candidate. "
-        f"Job description: {job_description}\n"
-        f"Transcript:\n{transcript}\n"
-        "Focus on the substance of the answers and the candidate's ability to communicate technical ideas clearly."
-    )
 
     response = await _evaluator_client.chat.completions.create(
         model="openai/gpt-4o-mini",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         response_format={"type": "json_object"},
@@ -54,8 +72,35 @@ async def generate_interview_scorecard(transcript: str, job_description: str) ->
 
     raw_content = response.choices[0].message.content
     try:
-        parsed = json.loads(raw_content)
+        return json.loads(raw_content)
     except json.JSONDecodeError:
         raise RuntimeError("OpenRouter returned invalid JSON for the evaluation payload.")
 
-    return parsed
+
+async def generate_interview_scorecard(transcript: str, job_title: str, job_description: str) -> Dict[str, Any]:
+    prompt = (
+        "Use the job description and the transcript below to evaluate the candidate. "
+        f"Job description: {job_description}\n"
+        f"Transcript:\n{transcript}\n"
+        "Focus on the substance of the answers and the candidate's ability to communicate technical ideas clearly."
+    )
+
+    return await _call_openrouter(INTERVIEW_SYSTEM_PROMPT, prompt)
+
+
+async def generate_coding_scorecard(
+    code: str,
+    language: str,
+    problem_title: str,
+    problem_description: str,
+) -> Dict[str, Any]:
+    prompt = f"""
+PROBLEM TITLE: {problem_title}
+PROBLEM DESCRIPTION: {problem_description}
+LANGUAGE USED: {language}
+
+CANDIDATE CODE:
+{code}
+"""
+
+    return await _call_openrouter(CODING_SYSTEM_PROMPT, prompt)

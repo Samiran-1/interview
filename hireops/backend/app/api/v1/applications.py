@@ -19,6 +19,7 @@ from app.models import User, Candidate, Job, Application, ApplicationStatus
 from app.api.dependencies import get_current_user
 from app.services.job_matcher import calculate_job_match
 from app.services.assessment_generator import generate_custom_mcq
+from app.services.evaluator import generate_coding_scorecard
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,6 +69,13 @@ class MCQScoreUpdate(BaseModel):
 class CodingScoreUpdate(BaseModel):
     """Schema for updating Coding test score."""
     score: float
+
+
+class CodingEvaluationRequest(BaseModel):
+    code: str
+    language: str
+    problem_title: Optional[str] = None
+    problem_description: Optional[str] = None
 
 
 class ApplicationStatusUpdate(BaseModel):
@@ -441,6 +449,43 @@ async def update_coding_score(
     await db.refresh(application)
 
     return ApplicationOut.model_validate(application)
+
+
+@router.post("/applications/{application_id}/coding/evaluate")
+async def evaluate_coding_solution(
+    application_id: int,
+    payload: CodingEvaluationRequest,
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.role.value != "CANDIDATE":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only candidates can evaluate their code.")
+
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    application = result.scalar_one_or_none()
+
+    if not application:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found.")
+
+    if application.candidate_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized to evaluate this application.")
+
+    job_result = await db.execute(select(Job).where(Job.id == application.job_id))
+    job = job_result.scalar_one_or_none()
+    job_title = job.title if job else "General Technical Role"
+    job_description = (job.description or job_title) if job else "General Technical Role"
+
+    try:
+        evaluation = await generate_coding_scorecard(
+            code=payload.code,
+            language=payload.language,
+            problem_title=payload.problem_title or job_title,
+            problem_description=payload.problem_description or job_description,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
+    return {"evaluation": evaluation}
 
 
 @router.patch("/applications/{application_id}/status", response_model=ApplicationOut)

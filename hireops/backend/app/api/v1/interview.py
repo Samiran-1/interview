@@ -433,20 +433,33 @@ async def evaluate_interview(
     if not application:
         raise HTTPException(status_code=404, detail="Application not found.")
 
-    job_description = (application.job.description or application.job.title) if application.job else "General technical role"
+    job_title = application.job.title if application.job else "General technical role"
+    job_description = (application.job.description or job_title) if application.job else "General technical role"
     job_description = (job_description or "General technical role").strip()
 
     transcript_text = (payload.transcript or "").strip()
     if not transcript_text:
         transcript_text = (application.voice_transcript or "").strip()
+
+    empty_transcript_placeholder = "Transcript not yet captured. Proceeding with empty transcript."
     if not transcript_text:
-        transcript_text = "Transcript not yet captured. Proceeding with empty transcript."
+        transcript_text = empty_transcript_placeholder
         logger.warning("Evaluation triggered without transcript for application %s", application_id)
 
-    try:
-        scorecard = await generate_interview_scorecard(transcript_text, job_description)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    if transcript_text == empty_transcript_placeholder:
+        scorecard = {
+            "technical_score": 0,
+            "communication_score": 0,
+            "strengths": [],
+            "weaknesses": [],
+            "hire_recommendation": "No Hire",
+            "summary": "Interview ended before any audio was captured."
+        }
+    else:
+        try:
+            scorecard = await generate_interview_scorecard(transcript_text, job_title, job_description)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
 
     # ... your existing code ...
     technical_score = scorecard.get("technical_score")

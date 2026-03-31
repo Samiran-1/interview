@@ -61,28 +61,11 @@ const ActiveRoomControls = ({
         localParticipant.setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled);
     }, [isConnected, localParticipant]);
 
-    const handleEndInterview = useCallback(async () => {
+    const handleEndInterview = useCallback(() => {
         setIsEvaluating(true);
-        try {
-            console.log("Triggering interview evaluation for application ID:", applicationId);
-            const safeId = applicationId?.trim();
-            console.log("Safe application ID for evaluation:", safeId);
-            if (!safeId) {
-                console.warn("Cannot evaluate interview: missing application ID.");
-            } else {
-                await fetch(`${apiBaseUrl}/api/v1/interview/${safeId}/evaluate`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ transcript: "" }),
-                });
-            }
-        } catch (error) {
-            console.error("Failed to trigger evaluation:", error);
-        } finally {
-            room?.disconnect();
-            onEvaluationComplete();
-        }
-    }, [apiBaseUrl, applicationId, onEvaluationComplete, room]);
+        room?.disconnect();
+        onEvaluationComplete();
+    }, [onEvaluationComplete, room]);
 
     return (
         <div className="relative z-10 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-5 space-y-3 w-full">

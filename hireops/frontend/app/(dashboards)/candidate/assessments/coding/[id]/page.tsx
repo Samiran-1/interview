@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, use } from "react";
+import { useState, useCallback, use } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { ProctoringWrapper } from "@/components/assessment/ProctoringWrapper";
+
+const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
 // ---------------------------------------------------------------------------
 // Problem Definition (MVP — hardcoded FizzBuzz variant)
@@ -71,7 +74,31 @@ const STARTER_CODE = `def two_sum(nums, target):
     return []
 `;
 
+const LANGUAGES = [
+  { label: "Python", value: "python" },
+  { label: "JavaScript", value: "javascript" },
+  { label: "Java", value: "java" },
+  { label: "C++", value: "cpp" },
+];
+
+const FILE_EXTENSIONS: Record<string, string> = {
+  python: "py",
+  javascript: "js",
+  java: "java",
+  cpp: "cpp",
+};
+
 const MAX_WARNINGS = 3;
+
+type CodingEvaluationResult = {
+  execution_status?: "Pass" | "Partial" | "Fail" | string;
+  overall_score?: number;
+  time_complexity?: string;
+  space_complexity?: string;
+  constructive_feedback?: string;
+  missed_edge_cases?: string[];
+  hire_recommendation?: string;
+};
 
 // ---------------------------------------------------------------------------
 // Page Component
@@ -85,6 +112,7 @@ export default function CodingTestPage({
   const router = useRouter();
 
   const [code, setCode] = useState(STARTER_CODE);
+  const [language, setLanguage] = useState("python");
   const [output, setOutput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -92,95 +120,97 @@ export default function CodingTestPage({
   const [finalScore, setFinalScore] = useState(0);
   const [violations, setViolations] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [evaluationResult, setEvaluationResult] = useState<CodingEvaluationResult | null>(null);
+  const [evaluationWarning, setEvaluationWarning] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // ─── Tab-Key Handler ─────────────────────────────────────────────
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab") {
-        e.preventDefault();
-        const textarea = e.currentTarget;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-
-        const newCode =
-          code.substring(0, start) + "  " + code.substring(end);
-        setCode(newCode);
-
-        // Restore cursor position after React re-render
-        requestAnimationFrame(() => {
-          textarea.selectionStart = start + 2;
-          textarea.selectionEnd = start + 2;
-        });
-      }
-    },
-    [code]
-  );
-
-  // ─── Mock Code Execution ─────────────────────────────────────────
+  // ─── Mock Execution ─────────────────────────────────────────────
   const handleRunCode = useCallback(async () => {
     if (isRunning) return;
     setIsRunning(true);
-    setOutput(">>> Running test cases...\n");
+    setOutput("Executing mock test cases...");
 
-    // Simulate execution delay
-    await new Promise((r) => setTimeout(r, 800));
-    setOutput((prev) => prev + "\n─── Test Case 1 ───\n");
-    setOutput(
-      (prev) =>
-        prev +
-        "Input:  nums = [2, 7, 11, 15], target = 9\nExpect: [0, 1]\nOutput: [0, 1]\n✅ PASS\n"
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    setOutput((prev) =>
+      prev +
+      "\n\nTest Case 1 → Input: nums = [2, 7, 11, 15], target = 9\nOutput: [0, 1]\nTest Case 2 → Input: nums = [3, 2, 4], target = 6\nOutput: [1, 2]\nTest Case 3 → Input: nums = [3, 3], target = 6\nOutput: [0, 1]\n\n✅ All test cases passed (3/3)."
     );
-
-    await new Promise((r) => setTimeout(r, 500));
-    setOutput((prev) => prev + "\n─── Test Case 2 ───\n");
-    setOutput(
-      (prev) =>
-        prev +
-        "Input:  nums = [3, 2, 4], target = 6\nExpect: [1, 2]\nOutput: [1, 2]\n✅ PASS\n"
-    );
-
-    await new Promise((r) => setTimeout(r, 500));
-    setOutput((prev) => prev + "\n─── Test Case 3 ───\n");
-    setOutput(
-      (prev) =>
-        prev +
-        "Input:  nums = [3, 3], target = 6\nExpect: [0, 1]\nOutput: [0, 1]\n✅ PASS\n"
-    );
-
-    await new Promise((r) => setTimeout(r, 300));
-    setOutput(
-      (prev) =>
-        prev +
-        "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ All test cases passed! (3/3)\nExecution time: 0.024s\nMemory: 14.2 MB\n"
-    );
-
     setIsRunning(false);
   }, [isRunning]);
+
+  const fileName = `solution.${FILE_EXTENSIONS[language] ?? "txt"}`;
 
   // ─── Submit Handler ──────────────────────────────────────────────
   const handleSubmit = useCallback(async (violationCount: number = 0) => {
     if (isSubmitting || isCompleted) return;
     setIsSubmitting(true);
     setSubmitError(null);
+    setEvaluationWarning(null);
 
-    const score = 100; // MVP: mock full score
+    let score = 0;
+
+    const sanitizedApplicationId = Number(applicationId);
+    if (!Number.isFinite(sanitizedApplicationId)) {
+      setSubmitError("Invalid assessment identifier.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    let evaluation: CodingEvaluationResult | null = null;
+    let evaluationWarningMessage: string | null = null;
 
     try {
-      // 1. Save coding score
-      await fetchApi(`/api/v1/applications/${applicationId}/coding`, {
+      const evaluationPayload = {
+        code,
+        language,
+        problem_title: PROBLEM.title,
+        problem_description: PROBLEM.description,
+      };
+
+      const evaluationResponse = await fetchApi(
+        `/api/v1/applications/${sanitizedApplicationId}/coding/evaluate`,
+        {
+          method: "POST",
+          body: JSON.stringify(evaluationPayload),
+        }
+      );
+
+      evaluation = evaluationResponse?.evaluation ?? null;
+      if (!evaluation) {
+        throw new Error("Coding evaluation returned no data.");
+      }
+
+      if (Number.isFinite(Number(evaluation.overall_score))) {
+        score = Number(evaluation.overall_score);
+      }
+
+      setOutput((prev) =>
+        prev +
+        `\n\nAI Evaluation: ${evaluation.execution_status ?? "Unknown"
+        } — Score ${evaluation.overall_score ?? "N/A"}%\n${evaluation.constructive_feedback ?? "No feedback provided."
+        }`
+      );
+    } catch (err: unknown) {
+      evaluationWarningMessage =
+        err instanceof Error ? err.message : "AI evaluation failed.";
+      console.warn("AI evaluation warning:", err);
+      setOutput((prev) =>
+        prev +
+        `\n\nAI evaluation unavailable: ${evaluationWarningMessage}`
+      );
+    }
+
+    setEvaluationResult(evaluation);
+    setEvaluationWarning(evaluationWarningMessage);
+
+    if (!evaluation) {
+      score = 100;
+    }
+
+    try {
+      await fetchApi(`/api/v1/applications/${sanitizedApplicationId}/coding`, {
         method: "PATCH",
         body: JSON.stringify({ score }),
-      });
-
-      // 2. Determine next status based on violations
-      const nextStatus = violationCount > 0 ? 'NEEDS_REVIEW' : 'VOICE_PENDING';
-
-      // 3. Update application status
-      await fetchApi(`/api/v1/applications/${applicationId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: nextStatus }),
       });
 
       setFinalScore(score);
@@ -189,7 +219,8 @@ export default function CodingTestPage({
         err instanceof Error ? err.message : "Failed to save score.";
       console.error("Coding submit error:", err);
       setSubmitError(message);
-      setFinalScore(score); // still show score
+      setIsSubmitting(false);
+      return;
     }
 
     // Exit full screen safely
@@ -206,9 +237,9 @@ export default function CodingTestPage({
 
     // Redirect to assessment hub
     setTimeout(() => {
-      router.push("/candidate/assessments");
+      router.push("/candidate/assessment");
     }, 1500);
-  }, [applicationId, isSubmitting, isCompleted, router]);
+  }, [applicationId, code, isSubmitting, isCompleted, language, router]);
 
   // Track violations
   const handleViolationTick = useCallback((count: number) => {
@@ -262,10 +293,10 @@ export default function CodingTestPage({
         >
           <div
             className={`mx-auto w-20 h-20 rounded-2xl flex items-center justify-center border ${autoFailed
-                ? "bg-red-500/10 border-red-500/30"
-                : passed
-                  ? "bg-emerald-500/10 border-emerald-500/30"
-                  : "bg-amber-500/10 border-amber-500/30"
+              ? "bg-red-500/10 border-red-500/30"
+              : passed
+                ? "bg-emerald-500/10 border-emerald-500/30"
+                : "bg-amber-500/10 border-amber-500/30"
               }`}
           >
             {autoFailed ? (
@@ -312,8 +343,8 @@ export default function CodingTestPage({
             </div>
             <div
               className={`p-4 rounded-xl border ${violations > 0
-                  ? "bg-red-500/5 border-red-500/20"
-                  : "bg-neutral-800/40 border-neutral-700/40"
+                ? "bg-red-500/5 border-red-500/20"
+                : "bg-neutral-800/40 border-neutral-700/40"
                 }`}
             >
               <p
@@ -359,6 +390,11 @@ export default function CodingTestPage({
           {submitError && (
             <p className="text-xs text-amber-400 mt-2">
               Note: Score saved locally but failed to sync — {submitError}
+            </p>
+          )}
+          {evaluationWarning && (
+            <p className="text-xs text-amber-400 mt-2">
+              AI evaluation warning: {evaluationWarning}
             </p>
           )}
 
@@ -471,17 +507,29 @@ export default function CodingTestPage({
         <div className="flex-1 flex flex-col bg-neutral-950/80">
           {/* Editor Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-neutral-900/40">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <FileCode2 className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-neutral-400 tracking-wider">
-                solution.py
-              </span>
-              <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[9px] text-emerald-400 font-bold tracking-widest">
-                PYTHON
-              </span>
+              <div className="flex flex-col leading-none">
+                <span className="text-xs font-semibold text-neutral-200 tracking-wider">
+                  {fileName}
+                </span>
+                <span className="text-[9px] uppercase tracking-[0.4em] text-neutral-500">
+                  file
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Run Code */}
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                className="bg-neutral-800 border border-neutral-700 text-[10px] uppercase tracking-[0.3em] text-neutral-200 px-3 py-1 rounded-full"
+              >
+                {LANGUAGES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
               <motion.button
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
@@ -496,8 +544,6 @@ export default function CodingTestPage({
                 )}
                 {isRunning ? "Running…" : "Run Code"}
               </motion.button>
-
-              {/* Submit */}
               <motion.button
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
@@ -510,30 +556,23 @@ export default function CodingTestPage({
             </div>
           </div>
 
-          {/* Code Editor (textarea) */}
-          <div className="flex-1 relative overflow-hidden">
-            {/* Line numbers gutter */}
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-neutral-900/60 border-r border-neutral-800/30 overflow-hidden pointer-events-none z-10">
-              <div className="pt-5 px-2">
-                {code.split("\n").map((_, i) => (
-                  <div
-                    key={i}
-                    className="text-[11px] text-neutral-600 font-mono leading-[1.625rem] text-right pr-1"
-                  >
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <textarea
-              ref={textareaRef}
+          {/* Code Editor (Monaco) */}
+          <div className="flex-1 overflow-hidden">
+            <MonacoEditor
+              height="100%"
+              theme="vs-dark"
+              language={language}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              className="w-full h-full bg-neutral-950/90 text-emerald-300/90 font-mono text-sm leading-[1.625rem] p-5 pl-14 outline-none resize-none caret-emerald-400 selection:bg-emerald-500/20"
-              style={{ tabSize: 2 }}
+              onChange={(value) => setCode(value ?? "")}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                automaticLayout: true,
+                tabSize: 2,
+                wordWrap: "on",
+                scrollBeyondLastLine: false,
+                lineNumbersMinChars: 3,
+              }}
             />
           </div>
 
@@ -544,6 +583,20 @@ export default function CodingTestPage({
               <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
                 Console Output
               </span>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleRunCode}
+                disabled={isRunning}
+                className="flex items-center gap-2 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700/50 text-neutral-300 rounded-full text-[10px] font-bold tracking-wider transition-all disabled:opacity-50"
+              >
+                {isRunning ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                Run
+              </motion.button>
               {output && (
                 <button
                   onClick={() => setOutput("")}
@@ -566,6 +619,68 @@ export default function CodingTestPage({
               )}
             </div>
           </div>
+          {evaluationResult && (
+            <div className="mt-3 px-4 py-3 bg-neutral-900/60 border border-neutral-800/50 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.4em] text-neutral-500">
+                    AI Evaluation
+                  </p>
+                  <p className="text-sm font-semibold text-neutral-100">
+                    {evaluationResult.execution_status ?? "Review Pending"}
+                  </p>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-300">
+                  Score {Math.round(evaluationResult.overall_score ?? 0)}%
+                </span>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3 text-[10px] text-neutral-400">
+                {evaluationResult.time_complexity && (
+                  <div className="space-y-1">
+                    <p className="uppercase text-[9px] tracking-[0.3em] text-neutral-500">
+                      Time
+                    </p>
+                    <p className="font-semibold text-neutral-100">
+                      {evaluationResult.time_complexity}
+                    </p>
+                  </div>
+                )}
+                {evaluationResult.space_complexity && (
+                  <div className="space-y-1">
+                    <p className="uppercase text-[9px] tracking-[0.3em] text-neutral-500">
+                      Space
+                    </p>
+                    <p className="font-semibold text-neutral-100">
+                      {evaluationResult.space_complexity}
+                    </p>
+                  </div>
+                )}
+                {evaluationResult.hire_recommendation && (
+                  <div className="space-y-1 sm:col-span-2">
+                    <p className="uppercase text-[9px] tracking-[0.3em] text-neutral-500">
+                      Recommendation
+                    </p>
+                    <p className="font-semibold text-neutral-100">
+                      {evaluationResult.hire_recommendation}
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-neutral-300 leading-relaxed">
+                {evaluationResult.constructive_feedback ?? "No additional feedback provided."}
+              </div>
+              {evaluationResult.missed_edge_cases && evaluationResult.missed_edge_cases.length > 0 && (
+                <div className="text-[10px] text-neutral-400 space-y-1">
+                  <p className="font-semibold text-neutral-200">Missed Edge Cases</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    {evaluationResult.missed_edge_cases.map((edgeCase, idx) => (
+                      <li key={idx}>{edgeCase}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </ProctoringWrapper>
