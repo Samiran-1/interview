@@ -12,6 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { TooltipProps } from "recharts";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { fetchApi } from "@/lib/api";
 
@@ -46,6 +47,8 @@ interface ChartPoint extends JobPipelineEntry {
   gradientId: string;
   color: string;
 }
+
+const chartPalette = ["#6366f1", "#22d3ee", "#34d399", "#f97316"] as const;
 
 export default function ManagerDashboard() {
   const [jobPipeline, setJobPipeline] = useState<JobPipelineEntry[]>([]);
@@ -87,7 +90,6 @@ export default function ManagerDashboard() {
   const featuredJobs = useMemo(() => jobPipeline.slice(0, 4), [jobPipeline]);
   const totalJobs = jobPipeline.length;
 
-  const chartPalette = ["#6366f1", "#22d3ee", "#34d399", "#f97316"];
   const chartData = useMemo<ChartPoint[]>(
     () =>
       featuredJobs.map((job, idx) => ({
@@ -97,6 +99,17 @@ export default function ManagerDashboard() {
       })),
     [featuredJobs]
   );
+
+  const renderTooltip = ({ active, payload, label }: TooltipProps<number, string>) =>
+    active && payload && payload.length ? (
+      <div className="rounded-2xl bg-neutral-950/80 p-3 text-sm text-white shadow-lg">
+        <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">{label}</p>
+        <p className="pt-1">Applications: {payload[0].value}</p>
+        <p className="text-xs text-emerald-300">
+          {chartData.find((point) => point.title === label)?.interviews_pending ?? 0} voice pending
+        </p>
+      </div>
+    ) : null;
 
   return (
     <div className="flex flex-col flex-1 p-8 md:p-12 max-w-[1400px] mx-auto w-full">
@@ -174,19 +187,7 @@ export default function ManagerDashboard() {
                       tickLine={false}
                       width={48}
                     />
-                    <Tooltip
-                      content={({ active, payload, label }: any) =>
-                        active && payload && payload.length ? (
-                          <div className="rounded-2xl bg-neutral-950/80 p-3 text-sm text-white shadow-lg">
-                            <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">{label}</p>
-                            <p className="pt-1">Applications: {payload[0].value}</p>
-                            <p className="text-xs text-emerald-300">
-                              {chartData.find((point) => point.title === label)?.interviews_pending ?? 0} voice pending
-                            </p>
-                          </div>
-                        ) : null
-                      }
-                    />
+                    <Tooltip content={renderTooltip} />
                     <Bar dataKey="applicant_count" barSize={48} radius={[12, 12, 0, 0]}>
                       {chartData.map((entry) => (
                         <Cell key={entry.gradientId} fill={`url(#${entry.gradientId})`} />
